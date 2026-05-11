@@ -38,8 +38,17 @@ type UserService interface {
 	// ExchangeRefreshToken проверяет refresh в БД и выдаёт новую пару токенов.
 	ExchangeRefreshToken(ctx context.Context, refreshToken string) (*model.User, string, string, time.Time, error)
 
-	// GetUserIDFromAuthToken проверяет JWT access (metadata authorization / Bearer).
+	// GetUserIDFromAuthToken извлекает и проверяет subject JWT из заголовка Authorization (Bearer).
 	GetUserIDFromAuthToken(token string) (string, error)
+
+	// RegisterWithAuth регистрирует пользователя и возвращает пару токенов.
+	RegisterWithAuth(ctx context.Context, request model.UserRegisterRequest) (*model.AuthResponse, error)
+
+	// LoginWithAuth проверяет учётные данные и возвращает пару токенов.
+	LoginWithAuth(ctx context.Context, request model.LoginRequest) (*model.AuthResponse, error)
+
+	// RefreshWithAuth обменивает refresh-токен на новую пару access/refresh.
+	RefreshWithAuth(ctx context.Context, refreshPlain string) (*model.AuthResponse, error)
 }
 
 // Реализация сервисного слоя
@@ -268,4 +277,63 @@ func (s *userService) SoftDeleteUser(ctx context.Context, userID string) error {
 // HardDeleteUser полностью удаляет пользователя
 func (s *userService) HardDeleteUser(ctx context.Context, userID string) error {
 	return s.repo.HardDeleteUser(ctx, userID)
+}
+
+// RegisterWithAuth регистрирует пользователя и выдаёт токены.
+func (s *userService) RegisterWithAuth(ctx context.Context, request model.UserRegisterRequest) (*model.AuthResponse, error) {
+	u, err := s.CreateUser(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+
+	access, refresh, exp, err := s.IssueAuthTokens(ctx, u)
+	if err != nil {
+		return nil, err
+	}
+
+	return &model.AuthResponse{
+		Token:        access,
+		RefreshToken: refresh,
+		ExpiresAt:    &exp,
+	}, nil
+}
+
+// LoginWithAuth выполняет вход и выдаёт токены.
+func (s *userService) LoginWithAuth(ctx context.Context, request model.LoginRequest) (*model.AuthResponse, error) {
+	u, err := s.GetUserByEmailAndPassword(ctx, request.Email, request.Password)
+	if err != nil {
+		return nil, err
+	}
+
+	if u.DeletedAt != nil && !u.DeletedAt.IsZero() {
+		return nil, profileError.CustomError{
+			Message:    "user deleted",
+			StatusCode: http.StatusUnauthorized,
+		}
+	}
+
+	access, refresh, exp, err := s.IssueAuthTokens(ctx, u)
+	if err != nil {
+		return nil, err
+	}
+
+	return &model.AuthResponse{
+		Token:        access,
+		RefreshToken: refresh,
+		ExpiresAt:    &exp,
+	}, nil
+}
+
+// RefreshWithAuth обновляет пару токенов по refresh.
+func (s *userService) RefreshWithAuth(ctx context.Context, refreshPlain string) (*model.AuthResponse, error) {
+	_, access, newRefresh, exp, err := s.ExchangeRefreshToken(ctx, refreshPlain)
+	if err != nil {
+		return nil, err
+	}
+
+	return &model.AuthResponse{
+		Token:        access,
+		RefreshToken: newRefresh,
+		ExpiresAt:    &exp,
+	}, nil
 }

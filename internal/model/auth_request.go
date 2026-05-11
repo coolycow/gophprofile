@@ -21,3 +21,8 @@ type UserUpdateRequest struct {
 	OldPassword string `json:"old_password,omitempty"`
 	NewPassword string `json:"new_password,omitempty"`
 }
+
+// RefreshTokenRequest тело запроса обновления пары токенов
+type RefreshTokenRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}

@@ -6,6 +6,7 @@ import (
 
 	"github.com/coolycow/gophprofile/internal/config"
 	"github.com/coolycow/gophprofile/internal/handler"
+	"github.com/coolycow/gophprofile/internal/middleware"
 	"github.com/coolycow/gophprofile/internal/observer/audit"
 	"github.com/coolycow/gophprofile/internal/repository"
 	"github.com/coolycow/gophprofile/internal/service"
@@ -32,27 +33,33 @@ func setupRoutes(
 	auditNotifier *audit.Notifier,
 	minioClient *minio.Client,
 ) {
+	// Инициализация сервисов
 	avatarService := service.NewAvatarService(cfg, repo, minioClient)
 	healthService := service.NewHealthService(repo, cfg, minioClient)
+	userService := service.NewUserService(cfg, repo)
 
+	// Проверка работоспособности сервиса (не требует идентификации пользователя)
 	r.GET("/health", handler.HealthHandler(healthService))
 
-	// Группа маршрутов с опциональной аутентификацией
-	authGroup := r.Group("/")
+	// Группа маршрутов для API
+	api := r.Group("/api/v1")
 
-	authGroup.POST("/api/v1/avatars", handler.PostAvatarHandler(avatarService, auditNotifier))
+	// Маршруты для авторизации (TODO: их нет в задании, но как-то же нужно создать пользователя)
+	api.POST("/auth/register", handler.RegisterHandler(userService))
+	api.POST("/auth/login", handler.LoginHandler(userService))
+	api.POST("/auth/refresh", handler.RefreshHandler(userService))
 
-	// Маршруты для получения аватара по ID и по ID пользователя
-	authGroup.GET("/api/v1/avatars/:avatar_id", handler.GetAvatarByIDHandler(avatarService))
-	authGroup.GET("/api/v1/users/:user_id/avatar", handler.GetAvatarByUserIDHandler(avatarService))
+	// Маршруты для получения аватара по ID и по ID пользователя (не требуют идентификации пользователя)
+	api.GET("/avatars/:avatar_id", handler.GetAvatarByIDHandler(avatarService))
+	api.GET("/avatars/:avatar_id/metadata", handler.GetAvatarMetadataHandler(avatarService))
 
-	// Маршруты для удаления аватара по ID и по ID пользователя
-	authGroup.DELETE("/api/v1/avatars/:avatar_id", handler.DeleteAvatarByIDHandler(avatarService))
-	authGroup.DELETE("/api/v1/users/:user_id/avatar", handler.DeleteAvatarByUserIDHandler(avatarService))
+	api.GET("/users/:user_id/avatar", handler.GetAvatarByUserIDHandler(avatarService))
+	api.GET("/users/:user_id/avatars", handler.GetAvatarsByUserIDHandler(avatarService))
 
-	// Получение метаданных аватарки
-	authGroup.GET("/api/v1/avatars/:avatar_id/metadata", handler.GetAvatarMetadataHandler(avatarService))
-
-	// Список аватарок пользователя
-	authGroup.GET("/api/v1/users/:user_id/avatars", handler.GetUserAvatarsHandler(srv))
+	// Группа маршрутов для защищённых маршрутов (идентификация пользователя через X-User-ID от шлюза)
+	protected := api.Group("")
+	protected.Use(middleware.RequireXUserID())
+	protected.POST("/avatars", handler.PostAvatarHandler(avatarService, auditNotifier))
+	protected.DELETE("/avatars/:avatar_id", handler.DeleteAvatarByIDHandler(avatarService))
+	protected.DELETE("/users/:user_id/avatar", handler.DeleteAvatarByUserIDHandler(avatarService))
 }

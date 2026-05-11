@@ -8,8 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// GetUserAvatarsHandler получает список аватарок пользователя
-func GetUserAvatarsHandler(srv service.AvatarService) gin.HandlerFunc {
+// GetAvatarsByUserIDHandler получает список аватарок пользователя
+func GetAvatarsByUserIDHandler(srv service.AvatarService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Получаем ID пользователя из параметров запроса
 		userID := c.Param("user_id")
@@ -22,6 +22,15 @@ func GetUserAvatarsHandler(srv service.AvatarService) gin.HandlerFunc {
 			_ = c.Error(error.CustomError{
 				Message:    err.Error(),
 				StatusCode: http.StatusInternalServerError,
+			})
+			return
+		}
+
+		// Если аватарок не найдено, возвращаем 404
+		if len(avatars) == 0 {
+			_ = c.Error(error.CustomError{
+				Message:    "No avatars found",
+				StatusCode: http.StatusNotFound,
 			})
 			return
 		}

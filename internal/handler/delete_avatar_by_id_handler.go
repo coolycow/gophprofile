@@ -3,30 +3,22 @@ package handler
 import (
 	"net/http"
 
-	"github.com/coolycow/gophprofile/internal/error"
 	"github.com/coolycow/gophprofile/internal/service"
 	"github.com/gin-gonic/gin"
 )
 
-// DeleteAvatarByIDHandler удаляет аватарку по ID
+// DeleteAvatarByIDHandler удаляет аватарку по ID (требуется X-User-ID = владелец).
 func DeleteAvatarByIDHandler(srv service.AvatarService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Получаем ID аватара из параметров запроса
+		callerID := c.GetString("user_id")
 		avatarID := c.Param("avatar_id")
 
-		// Удаляем аватарку по ID
-		err := srv.DeleteAvatarByID(c.Request.Context(), avatarID)
-
-		// Если ошибка, возвращаем 500
+		err := srv.DeleteAvatarByID(c.Request.Context(), callerID, avatarID)
 		if err != nil {
-			_ = c.Error(error.CustomError{
-				Message:    err.Error(),
-				StatusCode: http.StatusInternalServerError,
-			})
+			pushServiceError(c, err)
 			return
 		}
 
-		// Возвращаем успешный ответ
-		c.JSON(http.StatusOK, gin.H{"message": "Avatar deleted successfully"})
+		c.Status(http.StatusNoContent)
 	}
 }

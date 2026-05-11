@@ -201,7 +201,7 @@ func (r *PostgresRepository) GetUserByEmail(ctx context.Context, email string) (
 // CreateUser создает нового пользователя
 func (r *PostgresRepository) CreateUser(ctx context.Context, user *model.User) (*model.User, error) {
 	row := r.db.QueryRowContext(ctx, `insert into users (email, password) 
-	values ($1, $2) returning id, email, password, salt, created_at, updated_at, deleted_at`,
+	values ($1, $2) returning id, email, password, created_at, updated_at, deleted_at`,
 		user.Email, user.Password)
 
 	var newUser model.User
@@ -219,7 +219,7 @@ func (r *PostgresRepository) CreateUser(ctx context.Context, user *model.User) (
 func (r *PostgresRepository) UpdateUser(ctx context.Context, userID string, user *model.User) error {
 	row := r.db.QueryRowContext(ctx, `update users 
 	set email = $1, password = $2, updated_at = $3, deleted_at = $4 where id = $5
-	returning id, email, password, salt, created_at, updated_at, deleted_at`,
+	returning id, email, password, created_at, updated_at, deleted_at`,
 		user.Email, user.Password, user.UpdatedAt, user.DeletedAt, userID)
 
 	err := row.Scan(&user.ID, &user.Email, &user.Password, &user.CreatedAt, &user.UpdatedAt, &user.DeletedAt)

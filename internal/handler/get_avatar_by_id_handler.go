@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"database/sql"
+	"errors"
 	"net/http"
 
 	"github.com/coolycow/gophprofile/internal/error"
@@ -19,6 +21,14 @@ func GetAvatarByIDHandler(srv service.AvatarService) gin.HandlerFunc {
 
 		// Если ошибка, возвращаем 500
 		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				_ = c.Error(error.CustomError{
+					Message:    "Avatar not found",
+					StatusCode: http.StatusNotFound,
+				})
+				return
+			}
+
 			_ = c.Error(error.CustomError{
 				Message:    err.Error(),
 				StatusCode: http.StatusInternalServerError,

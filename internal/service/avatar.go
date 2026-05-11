@@ -3,11 +3,14 @@ package service
 import (
 	"bytes"
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/coolycow/gophprofile/internal/config"
 	profileError "github.com/coolycow/gophprofile/internal/error"
@@ -24,8 +27,8 @@ type AvatarService interface {
 	GetAvatarByID(ctx context.Context, avatarID string) (*model.Avatar, error)
 	GetAvatarByUserID(ctx context.Context, userID string) (*model.Avatar, error)
 
-	DeleteAvatarByID(ctx context.Context, avatarID string) error
-	DeleteAvatarByUserID(ctx context.Context, userID string) error
+	DeleteAvatarByID(ctx context.Context, callerUserID, avatarID string) error
+	DeleteAvatarByUserID(ctx context.Context, callerUserID, pathUserID string) error
 
 	GetUserAvatars(ctx context.Context, userID string) ([]*model.Avatar, error)
 }
@@ -105,14 +108,58 @@ func (s *avatarService) GetAvatarByUserID(ctx context.Context, userID string) (*
 	return s.repo.GetAvatarByUserID(ctx, userID)
 }
 
-// DeleteAvatarByID удаляет аватарку по ID
-func (s *avatarService) DeleteAvatarByID(ctx context.Context, avatarID string) error {
+// DeleteAvatarByID удаляет аватарку по ID, если callerUserID совпадает с владельцем.
+func (s *avatarService) DeleteAvatarByID(ctx context.Context, callerUserID, avatarID string) error {
+	callerUserID = strings.TrimSpace(callerUserID)
+	avatarID = strings.TrimSpace(avatarID)
+
+	a, err := s.repo.GetAvatarByID(ctx, avatarID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return profileError.CustomError{
+				Message:    "avatar not found",
+				StatusCode: http.StatusNotFound,
+			}
+		}
+		return err
+	}
+
+	if !strings.EqualFold(strings.TrimSpace(a.UserID), callerUserID) {
+		return profileError.CustomError{
+			Message:    "Forbidden",
+			Details:    "You can only delete your own avatars",
+			StatusCode: http.StatusForbidden,
+		}
+	}
+
 	return s.repo.DeleteAvatarByID(ctx, avatarID)
 }
 
-// DeleteAvatarByUserID удаляет аватарку по ID пользователя
-func (s *avatarService) DeleteAvatarByUserID(ctx context.Context, userID string) error {
-	return s.repo.DeleteAvatarByUserID(ctx, userID)
+// DeleteAvatarByUserID удаляет аватар пользователя; pathUserID должен совпадать с callerUserID.
+func (s *avatarService) DeleteAvatarByUserID(ctx context.Context, callerUserID, pathUserID string) error {
+	callerUserID = strings.TrimSpace(callerUserID)
+	pathUserID = strings.TrimSpace(pathUserID)
+
+	if !strings.EqualFold(callerUserID, pathUserID) {
+		return profileError.CustomError{
+			Message:    "Forbidden",
+			Details:    "You can only delete your own avatars",
+			StatusCode: http.StatusForbidden,
+		}
+	}
+
+	_, err := s.repo.GetAvatarByUserID(ctx, pathUserID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return profileError.CustomError{
+				Message:    "avatar not found",
+				StatusCode: http.StatusNotFound,
+			}
+		}
+		return err
+	}
+
+	return s.repo.DeleteAvatarByUserID(ctx, pathUserID)
 }
 
 // GetUserAvatars получает список аватарок пользователя
