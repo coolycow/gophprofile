@@ -36,11 +36,15 @@ ENV MIGRATIONS_PATH=/usr/local/share/gophprofile/migrations
 # Том compose часто смонтирован на WORKDIR /app под root — запись audit.json в cwd падает с permission denied.
 ENV AUDIT_FILE=/tmp/audit.json
 
+# Слушать все интерфейсы; дефолт Go/конфига 127.0.0.1 делает сервис недоступным извне контейнера.
+ENV HOST=0.0.0.0
+ENV PORT=8080
+
 WORKDIR /app
 
 USER appuser
 
-EXPOSE 8000
+EXPOSE 8080
 
 # Настройки (DATABASE_DSN, MINIO_*, и т.д.) задаются через environment в docker-compose или .env — см. .env.example
 CMD ["server"]

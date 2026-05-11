@@ -32,25 +32,26 @@ func setupRoutes(
 	auditNotifier *audit.Notifier,
 	minioClient *minio.Client,
 ) {
-	srv := service.NewAvatarService(cfg, repo, minioClient)
+	avatarService := service.NewAvatarService(cfg, repo, minioClient)
+	healthService := service.NewHealthService(repo, cfg, minioClient)
 
-	r.GET("/health", handler.HealthHandler(srv))
+	r.GET("/health", handler.HealthHandler(healthService))
 
 	// Группа маршрутов с опциональной аутентификацией
 	authGroup := r.Group("/")
 
-	authGroup.POST("/api/v1/avatars", handler.PostAvatarHandler(srv, auditNotifier))
+	authGroup.POST("/api/v1/avatars", handler.PostAvatarHandler(avatarService, auditNotifier))
 
 	// Маршруты для получения аватара по ID и по ID пользователя
-	authGroup.GET("/api/v1/avatars/:avatar_id", handler.GetAvatarByIDHandler(srv))
-	authGroup.GET("/api/v1/users/:user_id/avatar", handler.GetAvatarByUserIDHandler(srv))
+	authGroup.GET("/api/v1/avatars/:avatar_id", handler.GetAvatarByIDHandler(avatarService))
+	authGroup.GET("/api/v1/users/:user_id/avatar", handler.GetAvatarByUserIDHandler(avatarService))
 
 	// Маршруты для удаления аватара по ID и по ID пользователя
-	authGroup.DELETE("/api/v1/avatars/:avatar_id", handler.DeleteAvatarByIDHandler(srv))
-	authGroup.DELETE("/api/v1/users/:user_id/avatar", handler.DeleteAvatarByUserIDHandler(srv))
+	authGroup.DELETE("/api/v1/avatars/:avatar_id", handler.DeleteAvatarByIDHandler(avatarService))
+	authGroup.DELETE("/api/v1/users/:user_id/avatar", handler.DeleteAvatarByUserIDHandler(avatarService))
 
 	// Получение метаданных аватарки
-	authGroup.GET("/api/v1/avatars/:avatar_id/metadata", handler.GetAvatarMetadataHandler(srv))
+	authGroup.GET("/api/v1/avatars/:avatar_id/metadata", handler.GetAvatarMetadataHandler(avatarService))
 
 	// Список аватарок пользователя
 	authGroup.GET("/api/v1/users/:user_id/avatars", handler.GetUserAvatarsHandler(srv))
