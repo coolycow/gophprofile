@@ -17,3 +17,17 @@ type Avatar struct {
 	UpdatedAt        *time.Time `json:"updated_at,omitempty"`
 	DeletedAt        *time.Time `json:"deleted_at,omitempty"`
 }
+
+// GetMetadata получает метаданные аватарки
+func (a *Avatar) GetMetadata() *AvatarMetadata {
+	return &AvatarMetadata{
+		ID:              a.ID,
+		UserID:          a.UserID,
+		FileName:        a.FileName,
+		MimeType:        a.MimeType,
+		SizeBytes:       a.SizeBytes,
+		ThumbnailS3Keys: a.ThumbnailS3Keys,
+		CreatedAt:       a.CreatedAt,
+		UpdatedAt:       a.UpdatedAt,
+	}
+}

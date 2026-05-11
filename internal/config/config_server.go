@@ -73,8 +73,8 @@ func (c *ConfigServer) GetServerAddress() string {
 	return fmt.Sprintf("%s:%d", c.Host, c.Port)
 }
 
-// PrintConfig записывает полный дамп настроек одной строкой в лог (вызывать после logger.Initialize).
-func (c *ConfigServer) PrintConfig() {
+// PrintServerConfig записывает полный дамп настроек одной строкой в лог (вызывать после logger.Initialize).
+func (c *ConfigServer) PrintServerConfig() {
 	var b strings.Builder
 
 	// Формируем строку с настройками
@@ -172,7 +172,7 @@ func applyEnvToConfigServer(config *ConfigServer, skipConfigFromEnv bool) (*Conf
 		config.Host = host
 	}
 
-	if err := parseIntFromEnv(config, "PORT",
+	if err := parseIntFromServerEnv(config, "PORT",
 		func(c *ConfigServer, v int) { c.Port = v }); err != nil {
 		return nil, err
 	}
@@ -225,11 +225,11 @@ func applyEnvToConfigServer(config *ConfigServer, skipConfigFromEnv bool) (*Conf
 		config.AuditURL = auditURL
 	}
 
-	if err := parseIntFromEnv(config, "ACCESS_TOKEN_TTL_MIN",
+	if err := parseIntFromServerEnv(config, "ACCESS_TOKEN_TTL_MIN",
 		func(c *ConfigServer, v int) { c.AccessTokenTTLMinutes = v }); err != nil {
 		return nil, err
 	}
-	if err := parseIntFromEnv(config, "REFRESH_TOKEN_TTL_H",
+	if err := parseIntFromServerEnv(config, "REFRESH_TOKEN_TTL_H",
 		func(c *ConfigServer, v int) { c.RefreshTokenTTLHours = v }); err != nil {
 		return nil, err
 	}
@@ -523,8 +523,8 @@ func applyExplicitServerFlags(dst *ConfigServer, src *ConfigServer, fs *flag.Fla
 	}
 }
 
-// parseIntFromEnv парсит int-значение из переменной окружения и устанавливает его в поле конфигурации
-func parseIntFromEnv(config *ConfigServer, envKey string, setter func(*ConfigServer, int)) error {
+// parseIntFromServerEnv парсит int-значение из переменной окружения и устанавливает его в поле конфигурации
+func parseIntFromServerEnv(config *ConfigServer, envKey string, setter func(*ConfigServer, int)) error {
 	if value, present := os.LookupEnv(envKey); present {
 		intValue, err := strconv.Atoi(value)
 		if err != nil {

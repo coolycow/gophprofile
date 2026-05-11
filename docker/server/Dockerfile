@@ -1,4 +1,4 @@
-FROM golang:1.24-alpine AS builder
+FROM golang:1.26.1-alpine AS builder
 
 WORKDIR /src
 
@@ -12,11 +12,15 @@ COPY . .
 
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
-ARG GO_MAIN_PATH=./cmd/server
+ARG GO_SERVER_MAIN_PATH=./cmd/server
+ARG GIT_COMMIT=unknown
+ARG BUILD_DATE=unknown
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -trimpath -ldflags="-s -w" -o /out/server "${GO_MAIN_PATH}"
+    go build -trimpath \
+    -ldflags="-s -w -X main.buildVersion=${GIT_COMMIT} -X main.buildDate=${BUILD_DATE} -X main.buildCommit=${GIT_COMMIT}" \
+    -o /out/server "${GO_SERVER_MAIN_PATH}"
 
 FROM alpine:3.21
 
@@ -25,11 +29,18 @@ RUN apk add --no-cache ca-certificates tzdata \
 
 COPY --from=builder /out/server /usr/local/bin/server
 
+# Не в WORKDIR /app: том compose может монтироваться на /app и скрывать файлы образа.
+COPY migrations /usr/local/share/gophprofile/migrations
+ENV MIGRATIONS_PATH=/usr/local/share/gophprofile/migrations
+
+# Том compose часто смонтирован на WORKDIR /app под root — запись audit.json в cwd падает с permission denied.
+ENV AUDIT_FILE=/tmp/audit.json
+
 WORKDIR /app
 
 USER appuser
 
 EXPOSE 8000
 
-# Настройки (POSTGRES_*, RABBITMQ_*, MINIO_*) задаются через environment в docker-compose или .env — см. .env.example
+# Настройки (DATABASE_DSN, MINIO_*, и т.д.) задаются через environment в docker-compose или .env — см. .env.example
 CMD ["server"]

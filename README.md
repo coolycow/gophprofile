@@ -6,3 +6,14 @@
 
 ## Фронтенд
 Ссылка на готовый фронтенд: [https://github.com/Yandex-Practicum/go-avatar-service-template](https://github.com/Yandex-Practicum/go-avatar-service-template).
+
+## Тестирование
+
+Для запуска теста из корня необходимо вызвать команду:
+```bash
+go test -v ./...
+```
+
+Для того, чтобы узнать процент покрытия тестами используется команда:
+```bash
+go test -cover ./...

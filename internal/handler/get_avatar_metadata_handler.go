@@ -14,8 +14,8 @@ func GetAvatarMetadataHandler(srv service.AvatarService) gin.HandlerFunc {
 		// Получаем ID аватара из параметров запроса
 		avatarID := c.Param("avatar_id")
 
-		// Получаем метаданные аватарки по ID
-		metadata, err := srv.GetAvatarMetadataByID(c.Request.Context(), avatarID)
+		// Получаем аватарку по ID
+		avatar, err := srv.GetAvatarByID(c.Request.Context(), avatarID)
 
 		// Если ошибка, возвращаем 500
 		if err != nil {
@@ -26,8 +26,8 @@ func GetAvatarMetadataHandler(srv service.AvatarService) gin.HandlerFunc {
 			return
 		}
 
-		// Если метаданные не найдены, возвращаем 404
-		if metadata == nil {
+		// Если аватарка не найдена, возвращаем 404
+		if avatar == nil {
 			_ = c.Error(error.CustomError{
 				Message:    "Metadata not found",
 				StatusCode: http.StatusNotFound,
@@ -36,6 +36,6 @@ func GetAvatarMetadataHandler(srv service.AvatarService) gin.HandlerFunc {
 		}
 
 		// Возвращаем метаданные аватарки
-		c.JSON(http.StatusOK, metadata)
+		c.JSON(http.StatusOK, avatar.GetMetadata())
 	}
 }

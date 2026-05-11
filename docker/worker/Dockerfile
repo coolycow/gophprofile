@@ -1,4 +1,4 @@
-FROM golang:1.24-alpine AS builder
+FROM golang:1.26.1-alpine AS builder
 
 WORKDIR /src
 
@@ -12,11 +12,11 @@ COPY . .
 
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
-ARG GO_MAIN_PATH=./cmd/worker
+ARG GO_WORKER_MAIN_PATH=./cmd/worker
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -trimpath -ldflags="-s -w" -o /out/worker "${GO_MAIN_PATH}"
+    go build -trimpath -ldflags="-s -w" -o /out/worker "${GO_WORKER_MAIN_PATH}"
 
 FROM alpine:3.21
 
@@ -31,5 +31,5 @@ USER appuser
 
 EXPOSE 8000
 
-# Настройки (POSTGRES_*, RABBITMQ_*, MINIO_*) задаются через environment в docker-compose или .env — см. .env.example
+# Настройки (DATABASE_DSN, MINIO_*, и т.д.) задаются через environment в docker-compose или .env — см. .env.example
 CMD ["worker"]

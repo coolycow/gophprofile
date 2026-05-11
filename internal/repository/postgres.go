@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/coolycow/gophprofile/internal/logger"
@@ -35,6 +36,52 @@ func (r *PostgresRepository) checkTableExists(tableName string) (bool, error) {
 	return exists, err
 }
 
+// findMigrationsDir возвращает абсолютный путь к каталогу SQL-миграций.
+// Приоритет: MIGRATIONS_PATH → ./migrations относительно cwd → подъём к каталогу с go.mod.
+func findMigrationsDir() (string, error) {
+	if p := strings.TrimSpace(os.Getenv("MIGRATIONS_PATH")); p != "" {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			return "", fmt.Errorf("MIGRATIONS_PATH: %w", err)
+		}
+		fi, err := os.Stat(abs)
+		if err != nil {
+			return "", fmt.Errorf("MIGRATIONS_PATH %q: %w", p, err)
+		}
+		if !fi.IsDir() {
+			return "", fmt.Errorf("MIGRATIONS_PATH %q is not a directory", p)
+		}
+		return abs, nil
+	}
+
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get working directory: %w", err)
+	}
+
+	candidate := filepath.Join(wd, "migrations")
+	if fi, err := os.Stat(candidate); err == nil && fi.IsDir() {
+		return filepath.Abs(candidate)
+	}
+
+	projectRoot := wd
+	for {
+		if _, err := os.Stat(filepath.Join(projectRoot, "go.mod")); err == nil {
+			p := filepath.Join(projectRoot, "migrations")
+			if fi, err := os.Stat(p); err == nil && fi.IsDir() {
+				return filepath.Abs(p)
+			}
+			return "", fmt.Errorf("migrations directory not found under project root %q", projectRoot)
+		}
+
+		parent := filepath.Dir(projectRoot)
+		if parent == projectRoot {
+			return "", fmt.Errorf("project root (go.mod) not found; set MIGRATIONS_PATH or run from the repository root")
+		}
+		projectRoot = parent
+	}
+}
+
 // RunMigrations выполняет миграции
 func (r *PostgresRepository) RunMigrations() error {
 	logger.Log.Info("Running migrations")
@@ -45,27 +92,11 @@ func (r *PostgresRepository) RunMigrations() error {
 		return err
 	}
 
-	// Получаем абсолютный путь к директории с миграциями
-	wd, err := os.Getwd()
+	migrationsPath, err := findMigrationsDir()
 	if err != nil {
-		return fmt.Errorf("failed to get working directory: %w", err)
+		return err
 	}
 
-	// Ищем корень проекта (где находится go.mod)
-	projectRoot := wd
-	for {
-		if _, err := os.Stat(filepath.Join(projectRoot, "go.mod")); err == nil {
-			break
-		}
-
-		parent := filepath.Dir(projectRoot)
-		if parent == projectRoot {
-			return fmt.Errorf("project root not found")
-		}
-		projectRoot = parent
-	}
-
-	migrationsPath := filepath.Join(projectRoot, "migrations")
 	migrationsURL := "file://" + filepath.ToSlash(migrationsPath)
 
 	// Указываем путь к директории с миграциями
@@ -296,11 +327,11 @@ func (r *PostgresRepository) UploadAvatar(ctx context.Context, userID string, fi
 	return &a, nil
 }
 
-// GetAvatarByID получает аватарку по ID
+// GetAvatarByID получает аватарку по ID (только не удаленные)
 func (r *PostgresRepository) GetAvatarByID(ctx context.Context, avatarID string) (*model.Avatar, error) {
 	row := r.db.QueryRowContext(ctx, `select id, user_id, file_name, mime_type, size_bytes, 
 	s3_key, thumbnail_s3_keys, upload_status, processing_status, 
-	created_at, updated_at, deleted_at from avatars where id = $1`, avatarID)
+	created_at, updated_at, deleted_at from avatars where id = $1 and deleted_at is null`, avatarID)
 
 	var a model.Avatar
 	err := row.Scan(&a.ID, &a.UserID, &a.FileName, &a.MimeType, &a.SizeBytes,
@@ -314,11 +345,11 @@ func (r *PostgresRepository) GetAvatarByID(ctx context.Context, avatarID string)
 	return &a, nil
 }
 
-// GetAvatarByUserID получает аватарку по ID пользователя
+// GetAvatarByUserID получает аватарку по ID пользователя (только не удаленные)
 func (r *PostgresRepository) GetAvatarByUserID(ctx context.Context, userID string) (*model.Avatar, error) {
 	row := r.db.QueryRowContext(ctx, `select id, user_id, file_name, mime_type, size_bytes, 
 	s3_key, thumbnail_s3_keys, upload_status, processing_status, 
-	created_at, updated_at, deleted_at from avatars where user_id = $1`, userID)
+	created_at, updated_at, deleted_at from avatars where user_id = $1 and deleted_at is null`, userID)
 
 	var a model.Avatar
 	err := row.Scan(&a.ID, &a.UserID, &a.FileName, &a.MimeType, &a.SizeBytes,
@@ -332,46 +363,16 @@ func (r *PostgresRepository) GetAvatarByUserID(ctx context.Context, userID strin
 	return &a, nil
 }
 
-// DeleteAvatarByID удаляет аватарку по ID
+// DeleteAvatarByID удаляет аватарку по ID (мягкое удаление)
 func (r *PostgresRepository) DeleteAvatarByID(ctx context.Context, avatarID string) error {
-	_, err := r.db.ExecContext(ctx, "delete from avatars where id = $1", avatarID)
+	_, err := r.db.ExecContext(ctx, "update avatars set deleted_at = $1 where id = $2", time.Now(), avatarID)
 	return err
 }
 
-// DeleteAvatarByUserID удаляет аватарку по ID пользователя
+// DeleteAvatarByUserID удаляет аватарку по ID пользователя (мягкое удаление)
 func (r *PostgresRepository) DeleteAvatarByUserID(ctx context.Context, userID string) error {
-	_, err := r.db.ExecContext(ctx, "delete from avatars where user_id = $1", userID)
+	_, err := r.db.ExecContext(ctx, "update avatars set deleted_at = $1 where user_id = $2", time.Now(), userID)
 	return err
-}
-
-// GetAvatarMetadataByID получает метаданные аватарки по ID
-func (r *PostgresRepository) GetAvatarMetadataByID(ctx context.Context, avatarID string) (*model.AvatarMetadata, error) {
-	row := r.db.QueryRowContext(ctx, `select id, user_id, avatar_id, metadata, 
-	created_at, updated_at, deleted_at from avatar_metadata where id = $1`, avatarID)
-
-	var m model.AvatarMetadata
-	err := row.Scan(&m.ID, &m.UserID, &m.AvatarID, &m.Metadata, &m.CreatedAt, &m.UpdatedAt, &m.DeletedAt)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return &m, nil
-}
-
-// GetAvatarMetadataByUserID получает метаданные аватарки по ID пользователя
-func (r *PostgresRepository) GetAvatarMetadataByUserID(ctx context.Context, userID string) (*model.AvatarMetadata, error) {
-	row := r.db.QueryRowContext(ctx, `select id, user_id, avatar_id, metadata, 
-	created_at, updated_at, deleted_at from avatar_metadata where user_id = $1`, userID)
-
-	var m model.AvatarMetadata
-	err := row.Scan(&m.ID, &m.UserID, &m.AvatarID, &m.Metadata, &m.CreatedAt, &m.UpdatedAt, &m.DeletedAt)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return &m, nil
 }
 
 // GetUserAvatars получает список аватарок пользователя

@@ -35,7 +35,7 @@ func GetAvatarByIDHandler(srv service.AvatarService) gin.HandlerFunc {
 			return
 		}
 
-		// Возвращаем аватарку
-		c.JSON(http.StatusOK, avatar)
+		// Возвращаем аватарку в виде файла
+		c.File(avatar.S3Key)
 	}
 }

@@ -27,9 +27,6 @@ type AvatarService interface {
 	DeleteAvatarByID(ctx context.Context, avatarID string) error
 	DeleteAvatarByUserID(ctx context.Context, userID string) error
 
-	GetAvatarMetadataByID(ctx context.Context, avatarID string) (*model.AvatarMetadata, error)
-	GetAvatarMetadataByUserID(ctx context.Context, userID string) (*model.AvatarMetadata, error)
-
 	GetUserAvatars(ctx context.Context, userID string) ([]*model.Avatar, error)
 }
 
@@ -82,9 +79,12 @@ func (s *avatarService) UploadAvatar(ctx context.Context, userID string, file *m
 	bucketName := s.cfg.MinioBucketName
 	objectName := fmt.Sprintf("%s/%s", userID, fileHeader.Filename)
 	contentType := fileHeader.Header.Get("Content-Type")
-	_, err = s.minioClient.PutObject(ctx, bucketName, objectName, bytes.NewReader(reader), fileHeader.Size, minio.PutObjectOptions{
+
+	info, err := s.minioClient.PutObject(ctx, bucketName, objectName, bytes.NewReader(reader), fileHeader.Size, minio.PutObjectOptions{
 		ContentType: contentType,
 	})
+
+	// Если ошибка, возвращаем ошибку
 	if err != nil {
 		return nil, profileError.CustomError{
 			Message:    fmt.Sprintf("failed to upload file to MinIO: %s", err),
@@ -92,7 +92,7 @@ func (s *avatarService) UploadAvatar(ctx context.Context, userID string, file *m
 		}
 	}
 
-	return s.repo.UploadAvatar(ctx, userID, fileHeader.Filename, contentType, fileHeader.Size, objectName, "[]", "completed", "pending")
+	return s.repo.UploadAvatar(ctx, userID, fileHeader.Filename, contentType, info.Size, info.Key, "[]", "completed", "pending")
 }
 
 // GetAvatarByID получает аватарку по ID
@@ -113,16 +113,6 @@ func (s *avatarService) DeleteAvatarByID(ctx context.Context, avatarID string) e
 // DeleteAvatarByUserID удаляет аватарку по ID пользователя
 func (s *avatarService) DeleteAvatarByUserID(ctx context.Context, userID string) error {
 	return s.repo.DeleteAvatarByUserID(ctx, userID)
-}
-
-// GetAvatarMetadataByID получает метаданные аватарки по ID
-func (s *avatarService) GetAvatarMetadataByID(ctx context.Context, avatarID string) (*model.AvatarMetadata, error) {
-	return s.repo.GetAvatarMetadataByID(ctx, avatarID)
-}
-
-// GetAvatarMetadataByUserID получает метаданные аватарки по ID пользователя
-func (s *avatarService) GetAvatarMetadataByUserID(ctx context.Context, userID string) (*model.AvatarMetadata, error) {
-	return s.repo.GetAvatarMetadataByUserID(ctx, userID)
 }
 
 // GetUserAvatars получает список аватарок пользователя

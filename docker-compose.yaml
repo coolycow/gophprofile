@@ -39,26 +39,30 @@ services:
     image: gophprofile/server:latest
     container_name: server
     ports:
-      - "8333:8000"
+      - "8333:8080"
     environment:
       - TARGETOS=${TARGETOS:-linux}
       - TARGETARCH=${TARGETARCH:-amd64}
-      - GO_MAIN_PATH=${GO_MAIN_PATH:-./cmd/server}
-      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
-      - POSTGRES_PORT=${POSTGRES_PORT:-5435}
+      - GO_SERVER_MAIN_PATH=${GO_SERVER_MAIN_PATH:-./cmd/server}
+      - DATABASE_DSN=${DATABASE_DSN:-host=postgres port=5432 user=gophprofile password=gophprofile dbname=gophprofile sslmode=disable}
       - RABBITMQ_HOST=${RABBITMQ_HOST:-rabbitmq}
       - RABBITMQ_PORT=${RABBITMQ_PORT:-5672}
-      - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio}
+      # API MinIO на 9000; имя хоста резолвится только во внутренней сети compose
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio:9000}
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-gophprofile}
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-gophprofile}
       - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME:-gophprofile}
       - MINIO_USE_SSL=${MINIO_USE_SSL:-false}
+      - AUDIT_FILE=${AUDIT_FILE:-/tmp/audit_server.json}
     volumes:
       - gophprofile_data:/app
     depends_on:
-      - postgres
-      - rabbitmq
-      - minio
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
     networks:
       - gophprofile_net
 
@@ -72,20 +76,23 @@ services:
     environment:
       - TARGETOS=${TARGETOS:-linux}
       - TARGETARCH=${TARGETARCH:-amd64}
-      - GO_MAIN_PATH=${GO_MAIN_PATH:-./cmd/worker}
-      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
-      - POSTGRES_PORT=${POSTGRES_PORT:-5435}
+      - GO_WORKER_MAIN_PATH=${GO_WORKER_MAIN_PATH:-./cmd/worker}
+      - DATABASE_DSN=${DATABASE_DSN:-host=postgres port=5432 user=gophprofile password=gophprofile dbname=gophprofile sslmode=disable}
       - RABBITMQ_HOST=${RABBITMQ_HOST:-rabbitmq}
       - RABBITMQ_PORT=${RABBITMQ_PORT:-5672}
-      - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio}
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio:9000}
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-gophprofile}
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-gophprofile}
       - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME:-gophprofile}
       - MINIO_USE_SSL=${MINIO_USE_SSL:-false}
+      - AUDIT_FILE=${AUDIT_FILE:-/tmp/audit_worker.json}
     depends_on:
-      - postgres
-      - rabbitmq
-      - minio
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
     networks:
       - gophprofile_net
 
@@ -135,12 +142,24 @@ services:
   minio:
     image: minio/minio:latest
     container_name: minio
+    command: server /data --console-address ":9001"
     ports:
       - "9000:9000"
+      - "9001:9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-gophprofile}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-gophprofile}
+      MINIO_BUCKET_NAME: ${MINIO_BUCKET_NAME:-gophprofile}
+      MINIO_USE_SSL: ${MINIO_USE_SSL:-false}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-gophprofile}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-gophprofile}
     volumes:
       - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
     networks:
       - gophprofile_net
