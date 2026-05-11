@@ -10,6 +10,7 @@ require (
 	github.com/golang-migrate/migrate/v4 v4.19.1
 	github.com/hashicorp/go-retryablehttp v0.7.8
 	github.com/minio/minio-go/v7 v7.1.0
+	github.com/rabbitmq/amqp091-go v1.11.0
 	github.com/spf13/pflag v1.0.10
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/zap v1.27.1

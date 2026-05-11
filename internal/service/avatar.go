@@ -20,6 +20,13 @@ import (
 	"github.com/minio/minio-go/v7"
 )
 
+// AvatarJobPublisher асинхронно ставит задание на обработку аватара (например в RabbitMQ).
+type AvatarJobPublisher interface {
+	PublishAvatarProcessingJob(ctx context.Context, avatarID string) error
+	PublishAvatarDeletionByIDJob(ctx context.Context, avatarID string) error
+	PublishAvatarDeletionByUserIDJob(ctx context.Context, userID string) error
+}
+
 // AvatarService Сервис для работы с аватарами
 type AvatarService interface {
 	UploadAvatar(ctx context.Context, userID string, file *multipart.File, fileHeader *multipart.FileHeader) (*model.Avatar, error)
@@ -35,19 +42,21 @@ type AvatarService interface {
 
 // Реализация сервисного слоя
 type avatarService struct {
-	repo        repository.GophProfileRepository
-	cfg         *config.ConfigServer
-	validator   *validator.Validate
-	minioClient *minio.Client
+	repo         repository.GophProfileRepository
+	cfg          *config.ConfigServer
+	validator    *validator.Validate
+	minioClient  *minio.Client
+	jobPublisher AvatarJobPublisher
 }
 
-// NewAvatarService инициализация сервиса
-func NewAvatarService(cfg *config.ConfigServer, repo repository.GophProfileRepository, minioClient *minio.Client) AvatarService {
+// NewAvatarService инициализация сервиса. jobPublisher может быть nil — тогда задания в очередь не отправляются.
+func NewAvatarService(cfg *config.ConfigServer, repo repository.GophProfileRepository, minioClient *minio.Client, jobPublisher AvatarJobPublisher) AvatarService {
 	return &avatarService{
-		repo:        repo,
-		cfg:         cfg,
-		validator:   validator.New(),
-		minioClient: minioClient,
+		repo:         repo,
+		cfg:          cfg,
+		validator:    validator.New(),
+		minioClient:  minioClient,
+		jobPublisher: jobPublisher,
 	}
 }
 
@@ -95,7 +104,23 @@ func (s *avatarService) UploadAvatar(ctx context.Context, userID string, file *m
 		}
 	}
 
-	return s.repo.UploadAvatar(ctx, userID, fileHeader.Filename, contentType, info.Size, info.Key, "[]", "completed", "pending")
+	// Сохраняем аватарку в базу данных
+	avatar, err := s.repo.UploadAvatar(ctx, userID, fileHeader.Filename, contentType, info.Size, info.Key, "[]", "completed", "pending")
+	if err != nil {
+		return nil, err
+	}
+
+	// Если publisher не nil, отправляем задание на обработку аватарки
+	if s.jobPublisher != nil {
+		if pubErr := s.jobPublisher.PublishAvatarProcessingJob(ctx, avatar.ID); pubErr != nil {
+			return nil, profileError.CustomError{
+				Message:    fmt.Sprintf("failed to enqueue avatar processing: %s", pubErr),
+				StatusCode: http.StatusInternalServerError,
+			}
+		}
+	}
+
+	return avatar, nil
 }
 
 // GetAvatarByID получает аватарку по ID
@@ -132,7 +157,22 @@ func (s *avatarService) DeleteAvatarByID(ctx context.Context, callerUserID, avat
 		}
 	}
 
-	return s.repo.DeleteAvatarByID(ctx, avatarID)
+	err = s.repo.DeleteAvatarByID(ctx, avatarID)
+	if err != nil {
+		return err
+	}
+
+	// Если publisher не nil, отправляем задание на удаление аватарки
+	if s.jobPublisher != nil {
+		if pubErr := s.jobPublisher.PublishAvatarDeletionByIDJob(ctx, avatarID); pubErr != nil {
+			return profileError.CustomError{
+				Message:    fmt.Sprintf("failed to enqueue avatar deletion: %s", pubErr),
+				StatusCode: http.StatusInternalServerError,
+			}
+		}
+	}
+
+	return nil
 }
 
 // DeleteAvatarByUserID удаляет аватар пользователя; pathUserID должен совпадать с callerUserID.
@@ -159,7 +199,22 @@ func (s *avatarService) DeleteAvatarByUserID(ctx context.Context, callerUserID, 
 		return err
 	}
 
-	return s.repo.DeleteAvatarByUserID(ctx, pathUserID)
+	err = s.repo.DeleteAvatarByUserID(ctx, pathUserID)
+	if err != nil {
+		return err
+	}
+
+	// Если publisher не nil, отправляем задание на удаление аватарки
+	if s.jobPublisher != nil {
+		if pubErr := s.jobPublisher.PublishAvatarDeletionByUserIDJob(ctx, pathUserID); pubErr != nil {
+			return profileError.CustomError{
+				Message:    fmt.Sprintf("failed to enqueue avatar deletion: %s", pubErr),
+				StatusCode: http.StatusInternalServerError,
+			}
+		}
+	}
+
+	return nil
 }
 
 // GetUserAvatars получает список аватарок пользователя

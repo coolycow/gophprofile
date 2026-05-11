@@ -32,10 +32,12 @@ func setupRoutes(
 	repo repository.GophProfileRepository,
 	auditNotifier *audit.Notifier,
 	minioClient *minio.Client,
+	avatarJobs service.AvatarJobPublisher,
+	rabbitMQConn service.RabbitMQHealthConn,
 ) {
 	// Инициализация сервисов
-	avatarService := service.NewAvatarService(cfg, repo, minioClient)
-	healthService := service.NewHealthService(repo, cfg, minioClient)
+	avatarService := service.NewAvatarService(cfg, repo, minioClient, avatarJobs)
+	healthService := service.NewHealthService(repo, cfg, minioClient, rabbitMQConn)
 	userService := service.NewUserService(cfg, repo)
 
 	// Проверка работоспособности сервиса (не требует идентификации пользователя)

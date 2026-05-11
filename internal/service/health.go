@@ -17,19 +17,26 @@ type HealthService interface {
 	CheckWorkerStatus(ctx context.Context) error
 }
 
+// RabbitMQHealthConn минимальный контракт для проверки RabbitMQ в /health.
+type RabbitMQHealthConn interface {
+	IsClosed() bool
+}
+
 // healthService реализация HealthService
 type healthService struct {
 	repo        repository.GophProfileRepository
 	cfg         *config.ConfigServer
 	minioClient *minio.Client
+	rabbitMQ    RabbitMQHealthConn
 }
 
-// NewHealthService инициализация HealthService
-func NewHealthService(repo repository.GophProfileRepository, cfg *config.ConfigServer, minioClient *minio.Client) HealthService {
+// NewHealthService инициализация HealthService. rabbitMQ может быть nil — проверка RabbitMQ в /health пропускается.
+func NewHealthService(repo repository.GophProfileRepository, cfg *config.ConfigServer, minioClient *minio.Client, rabbitMQ RabbitMQHealthConn) HealthService {
 	return &healthService{
 		repo:        repo,
 		cfg:         cfg,
 		minioClient: minioClient,
+		rabbitMQ:    rabbitMQ,
 	}
 }
 
@@ -55,6 +62,13 @@ func (s *healthService) CheckMinioStatus(ctx context.Context) error {
 
 // CheckRabbitMQStatus проверяет доступность RabbitMQ
 func (s *healthService) CheckRabbitMQStatus(ctx context.Context) error {
+	_ = ctx
+	if s.rabbitMQ == nil {
+		return nil
+	}
+	if s.rabbitMQ.IsClosed() {
+		return fmt.Errorf("connection closed")
+	}
 	return nil
 }
 

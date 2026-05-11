@@ -39,6 +39,12 @@ type ConfigServer struct {
 	MinioSecretKey  string `env:"MINIO_SECRET_KEY" json:"minio_secret_key,omitempty"`   // Secret Key MinIO
 	MinioBucketName string `env:"MINIO_BUCKET_NAME" json:"minio_bucket_name,omitempty"` // Имя бакета MinIO
 	MinioUseSSL     bool   `env:"MINIO_USE_SSL" json:"minio_use_ssl,omitempty"`         // Использовать SSL для MinIO
+
+	RabbitMQHost     string `env:"RABBITMQ_HOST" json:"rabbitmq_host,omitempty"`         // Хост RabbitMQ
+	RabbitMQPort     int    `env:"RABBITMQ_PORT" json:"rabbitmq_port,omitempty"`         // Порт AMQP
+	RabbitMQUser     string `env:"RABBITMQ_USER" json:"rabbitmq_user,omitempty"`         // Пользователь RabbitMQ
+	RabbitMQPassword string `env:"RABBITMQ_PASSWORD" json:"rabbitmq_password,omitempty"` // Пароль RabbitMQ
+	RabbitMQVHost    string `env:"RABBITMQ_VHOST" json:"rabbitmq_vhost,omitempty"`       // Виртуальный хост
 }
 
 // fileConfig — JSON-файл; указатели задают поля, явно присутствующие в файле.
@@ -66,6 +72,11 @@ type fileConfigServer struct {
 	MinioSecretKey        *string `json:"minio_secret_key"`         // Secret Key MinIO
 	MinioBucketName       *string `json:"minio_bucket_name"`        // Имя бакета MinIO
 	MinioUseSSL           *bool   `json:"minio_use_ssl"`            // Использовать SSL для MinIO
+	RabbitMQHost          *string `json:"rabbitmq_host"`            // Хост RabbitMQ
+	RabbitMQPort          *int    `json:"rabbitmq_port"`            // Порт AMQP
+	RabbitMQUser          *string `json:"rabbitmq_user"`            // Пользователь RabbitMQ
+	RabbitMQPassword      *string `json:"rabbitmq_password"`        // Пароль RabbitMQ
+	RabbitMQVHost         *string `json:"rabbitmq_vhost"`           // Виртуальный хост
 }
 
 // GetServerAddress возвращает полный адрес сервера для его запуска
@@ -87,6 +98,7 @@ func (c *ConfigServer) PrintServerConfig() {
 	fmt.Fprintf(&b, "AuditFile=%s AuditURL=%s; ", c.AuditFile, c.AuditURL)
 	fmt.Fprintf(&b, "MaxFileSize=%d; ", c.MaxFileSize)
 	fmt.Fprintf(&b, "MinioEndpoint=%s MinioAccessKey=%s MinioSecretKey=%s MinioBucketName=%s MinioUseSSL=%t; ", c.MinioEndpoint, c.MinioAccessKey, c.MinioSecretKey, c.MinioBucketName, c.MinioUseSSL)
+	fmt.Fprintf(&b, "RabbitMQHost=%s RabbitMQPort=%d RabbitMQUser=%s RabbitMQPassword=%s RabbitMQVHost=%s; ", c.RabbitMQHost, c.RabbitMQPort, c.RabbitMQUser, c.RabbitMQPassword, c.RabbitMQVHost)
 	// Выводим настройки в лог
 	logger.Log.Info(b.String())
 }
@@ -254,6 +266,22 @@ func applyEnvToConfigServer(config *ConfigServer, skipConfigFromEnv bool) (*Conf
 		config.MinioUseSSL, _ = strconv.ParseBool(minioUseSSL)
 	}
 
+	if rabbitMQHost, present := os.LookupEnv("RABBITMQ_HOST"); present {
+		config.RabbitMQHost = rabbitMQHost
+	}
+	if rabbitMQPort, present := os.LookupEnv("RABBITMQ_PORT"); present {
+		config.RabbitMQPort, _ = strconv.Atoi(rabbitMQPort)
+	}
+	if rabbitMQUser, present := os.LookupEnv("RABBITMQ_USER"); present {
+		config.RabbitMQUser = rabbitMQUser
+	}
+	if rabbitMQPassword, present := os.LookupEnv("RABBITMQ_PASSWORD"); present {
+		config.RabbitMQPassword = rabbitMQPassword
+	}
+	if rabbitMQVHost, present := os.LookupEnv("RABBITMQ_VHOST"); present {
+		config.RabbitMQVHost = rabbitMQVHost
+	}
+
 	if !skipConfigFromEnv {
 		if configFile, present := os.LookupEnv("CONFIG"); present {
 			config.Config = strings.TrimSpace(configFile)
@@ -323,6 +351,13 @@ func parseServerFlags(args []string) (*ConfigServer, *flag.FlagSet, error) {
 	flagSet.StringVar(&config.MinioBucketName, "minio-bucket-name", "", "MinIO bucket name")
 	flagSet.BoolVar(&config.MinioUseSSL, "minio-use-ssl", false, "Use SSL for MinIO")
 
+	// Флаги для RabbitMQ
+	flagSet.StringVar(&config.RabbitMQHost, "rabbitmq-host", getDefaultRabbitMQHost(), "RabbitMQ host")
+	flagSet.IntVar(&config.RabbitMQPort, "rabbitmq-port", getDefaultRabbitMQPort(), "RabbitMQ AMQP port")
+	flagSet.StringVar(&config.RabbitMQUser, "rabbitmq-user", getDefaultRabbitMQUser(), "RabbitMQ user")
+	flagSet.StringVar(&config.RabbitMQPassword, "rabbitmq-password", getDefaultRabbitMQPassword(), "RabbitMQ password")
+	flagSet.StringVar(&config.RabbitMQVHost, "rabbitmq-vhost", getDefaultRabbitMQVHost(), "RabbitMQ virtual host")
+
 	// Парсим флаги
 	err := flagSet.Parse(args)
 	if err != nil {
@@ -358,6 +393,11 @@ func defaultConfigServer() ConfigServer {
 		MinioSecretKey:        "",
 		MinioBucketName:       "",
 		MinioUseSSL:           false,
+		RabbitMQHost:          getDefaultRabbitMQHost(),
+		RabbitMQPort:          getDefaultRabbitMQPort(),
+		RabbitMQUser:          getDefaultRabbitMQUser(),
+		RabbitMQPassword:      getDefaultRabbitMQPassword(),
+		RabbitMQVHost:         getDefaultRabbitMQVHost(),
 	}
 }
 
@@ -443,6 +483,21 @@ func mergeConfigServerFromFile(cfg *ConfigServer, path string) error {
 	if fc.MinioUseSSL != nil {
 		cfg.MinioUseSSL = *fc.MinioUseSSL
 	}
+	if fc.RabbitMQHost != nil {
+		cfg.RabbitMQHost = *fc.RabbitMQHost
+	}
+	if fc.RabbitMQPort != nil {
+		cfg.RabbitMQPort = *fc.RabbitMQPort
+	}
+	if fc.RabbitMQUser != nil {
+		cfg.RabbitMQUser = *fc.RabbitMQUser
+	}
+	if fc.RabbitMQPassword != nil {
+		cfg.RabbitMQPassword = *fc.RabbitMQPassword
+	}
+	if fc.RabbitMQVHost != nil {
+		cfg.RabbitMQVHost = *fc.RabbitMQVHost
+	}
 	return nil
 }
 
@@ -520,6 +575,21 @@ func applyExplicitServerFlags(dst *ConfigServer, src *ConfigServer, fs *flag.Fla
 	}
 	if fs.Changed("minio-use-ssl") {
 		dst.MinioUseSSL = src.MinioUseSSL
+	}
+	if fs.Changed("rabbitmq-host") {
+		dst.RabbitMQHost = src.RabbitMQHost
+	}
+	if fs.Changed("rabbitmq-port") {
+		dst.RabbitMQPort = src.RabbitMQPort
+	}
+	if fs.Changed("rabbitmq-user") {
+		dst.RabbitMQUser = src.RabbitMQUser
+	}
+	if fs.Changed("rabbitmq-password") {
+		dst.RabbitMQPassword = src.RabbitMQPassword
+	}
+	if fs.Changed("rabbitmq-vhost") {
+		dst.RabbitMQVHost = src.RabbitMQVHost
 	}
 }
 

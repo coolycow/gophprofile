@@ -14,12 +14,13 @@ import (
 
 	"github.com/coolycow/gophprofile/internal/config"
 	"github.com/coolycow/gophprofile/internal/logger"
+	"github.com/coolycow/gophprofile/internal/minio"
 	"github.com/coolycow/gophprofile/internal/observer/audit"
+	"github.com/coolycow/gophprofile/internal/rabbitmq"
 	"github.com/coolycow/gophprofile/internal/repository"
 	"github.com/coolycow/gophprofile/internal/router"
 	"github.com/coolycow/gophprofile/internal/service"
-	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
+	amqp "github.com/rabbitmq/amqp091-go"
 	"go.uber.org/zap"
 )
 
@@ -88,32 +89,38 @@ func main() {
 	}
 
 	// Инициализируем MinIO клиент
-	minioClient, err := minio.New(cfg.MinioEndpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(cfg.MinioAccessKey, cfg.MinioSecretKey, ""),
-		Secure: cfg.MinioUseSSL,
-	})
+	minioClient, err := minio.NewMinioClient(cfg.MinioEndpoint, cfg.MinioAccessKey, cfg.MinioSecretKey, cfg.MinioBucketName, cfg.MinioUseSSL)
 	if err != nil {
 		logger.Log.Fatal("Failed to initialize minio client", zap.Error(err))
 	}
 
-	logger.Log.Info("Initialized minio client successfully")
-
-	// Создаем бакет если он не существует
-	err = minioClient.MakeBucket(context.Background(), cfg.MinioBucketName, minio.MakeBucketOptions{})
+	// Подключение к RabbitMQ серверу
+	amqpURI := rabbitmq.BuildURI(cfg.RabbitMQUser, cfg.RabbitMQPassword, cfg.RabbitMQHost, cfg.RabbitMQPort, cfg.RabbitMQVHost)
+	rabbitConn, err := amqp.Dial(amqpURI)
 	if err != nil {
-		// Check to see if we already own this bucket (which happens if you run this twice)
-		exists, errBucketExists := minioClient.BucketExists(context.Background(), cfg.MinioBucketName)
-		if errBucketExists == nil && exists {
-			logger.Log.Info("We already own %s", zap.String("bucket", cfg.MinioBucketName))
-		} else {
-			logger.Log.Fatal("Failed to create bucket", zap.Error(err))
-		}
+		logger.Log.Fatal("Failed to connect to RabbitMQ", zap.Error(err))
 	}
+	defer rabbitConn.Close()
 
-	logger.Log.Info("Created bucket successfully")
+	// Создание канала для работы с RabbitMQ
+	ch, err := rabbitConn.Channel()
+	if err != nil {
+		logger.Log.Fatal("Failed to open a channel", zap.Error(err))
+	}
+	defer ch.Close()
+
+	// Объявление очереди
+	queue, err := rabbitmq.EnsureAvatarJobsQueue(ch)
+	if err != nil {
+		logger.Log.Fatal("Failed to declare avatar jobs queue", zap.Error(err))
+	}
+	logger.Log.Info("Declared queue successfully", zap.String("queue", queue.Name))
+
+	// Создание издателя заданий
+	avatarJobPublisher := rabbitmq.NewAvatarJobPublisher(ch)
 
 	// Инициализируем роутер
-	r := router.NewRouter(cfg, repo, auditNotifier, minioClient)
+	r := router.NewRouter(cfg, repo, auditNotifier, minioClient, avatarJobPublisher, rabbitConn)
 
 	// Получаем адрес сервера из настроек и запускаем сервер
 	serverAddress := cfg.GetServerAddress()
