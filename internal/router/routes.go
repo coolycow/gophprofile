@@ -60,7 +60,7 @@ func setupRoutes(
 
 	// Группа маршрутов для защищённых маршрутов (идентификация пользователя через X-User-ID от шлюза)
 	protected := api.Group("")
-	protected.Use(middleware.RequireXUserID())
+	protected.Use(middleware.RequireXUserID(userService))
 	protected.POST("/avatars", handler.PostAvatarHandler(avatarService, auditNotifier))
 	protected.DELETE("/avatars/:avatar_id", handler.DeleteAvatarByIDHandler(avatarService))
 	protected.DELETE("/users/:user_id/avatar", handler.DeleteAvatarByUserIDHandler(avatarService))

@@ -7,7 +7,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE TABLE avatars (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     
-    user_id VARCHAR(255) NOT NULL,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 
     file_name VARCHAR(255) NOT NULL,
     mime_type VARCHAR(100) NOT NULL,

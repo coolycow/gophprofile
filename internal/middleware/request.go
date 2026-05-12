@@ -24,6 +24,7 @@ func RequestLogger() gin.HandlerFunc {
 		logger.Log.Info("HTTP request",
 			zap.String("uri", c.Request.RequestURI),
 			zap.String("method", c.Request.Method),
+			zap.String("params", c.Request.URL.Query().Encode()),
 			zap.Duration("duration", duration),
 			zap.Int("status", c.Writer.Status()),
 			zap.Int("size", c.Writer.Size()),
