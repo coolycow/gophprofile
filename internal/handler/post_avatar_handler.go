@@ -16,7 +16,7 @@ func PostAvatarHandler(srv service.AvatarService, auditNotifier *audit.Notifier)
 		userID := c.GetString("user_id")
 
 		// Получаем файл из запроса
-		file, fileHeader, err := c.Request.FormFile("file")
+		file, fileHeader, err := c.Request.FormFile("image")
 
 		// Если ошибка, возвращаем 400
 		if err != nil {

@@ -7,6 +7,8 @@
 ## Фронтенд
 Ссылка на готовый фронтенд: [https://github.com/Yandex-Practicum/go-avatar-service-template](https://github.com/Yandex-Practicum/go-avatar-service-template).
 
+Для запуска клиента: http://localhost:8332
+
 ## База данных и миграции
 Используется контейнер `postgres` с именованным хранилищем.
 
