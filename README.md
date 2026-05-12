@@ -32,6 +32,18 @@
 * `format` - требуемый формат изображения, допустимые значения `jpeg`, `png` и `webp`. Генерация `png` и `webp` происходит в момент выполнения запроса.
 
 ## Сборка и запуск
+Обязательно необходимо создать:
+1. ENV-файл `.env` в корне (задаёт настройки для большей части проекта), например:
+```bash
+cp .env.example .env
+```
+2. ENV-файл `.env` в `docker/postgres` (задаёт настроки для контейнера Postgres), например:
+```bash
+cp docker/postgres/.env.example docker/postgres/.env
+```
+
+Для разработки и тестрования содержимое файлов `.env` можно не изменять, но на реальном сервере все логины/пароли должны быть установлены в соответствии с общепринятыми нормами.
+
 Для сборки:
 ```bash
 docker compose build
@@ -44,27 +56,39 @@ docker compose up -d
 
 ## Запросы
 ### Загрузка аватарки
+```bash
 POST /api/v1/avatars
 Content-Type: multipart/form-data
 Headers: X-User-ID: string
+```
 
 ### Получение аватарки
+```bash
 GET /api/v1/avatars/{avatar_id}
 GET /api/v1/users/{user_id}/avatar
+```
 
 ### Удаление аватарки
+```bash
 DELETE /api/v1/avatars/{avatar_id}
 DELETE /api/v1/users/{user_id}/avatar
 Headers: X-User-ID: string
+```
 
 ### Получение метаданных аватарки
+```bash
 GET /api/v1/avatars/{avatar_id}/metadata
+```
 
 ### Список аватарок пользователя
+```bash
 GET /api/v1/users/{user_id}/avatars
+```
 
 ### Проверка работоспособности
+```bash
 GET /health
+```
 
 ## Тестирование
 
