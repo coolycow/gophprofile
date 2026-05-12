@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -84,7 +83,7 @@ func main() {
 	}
 
 	// Инициализируем сервис работы с аватарками
-	workerService := service.NewWorkerService(repo, cfg, minioClient, nil)
+	workerService := service.NewWorkerService(repo, cfg, minioClient)
 
 	// Создаем контекст для завершения работы воркера
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
@@ -146,29 +145,52 @@ func runConsumer(ctx context.Context, msgs <-chan amqp.Delivery, workerService s
 				return
 			}
 
-			// Десериализация задания
-			var job rabbitmq.AvatarProcessingJob
-			if err := json.Unmarshal(d.Body, &job); err != nil {
-				logger.Log.Warn("invalid job payload", zap.Error(err))
-				if err := d.Nack(false, false); err != nil {
-					logger.Log.Error("rabbitmq nack failed", zap.Error(err))
+			// Декодируем задание
+			job, err := rabbitmq.DecodeAvatarJob(d.Body)
+			if err != nil {
+				logger.Log.Warn("invalid job payload", zap.Error(err), zap.String("body", string(d.Body)))
+				if nackErr := d.Nack(false, false); nackErr != nil {
+					logger.Log.Error("rabbitmq nack failed", zap.Error(nackErr))
 					return
 				}
 				continue
 			}
 
-			logger.Log.Info("received avatar processing job", zap.String("avatar_id", job.AvatarID))
+			// Выводим информацию о полученном задании
+			logger.Log.Info("received avatar job",
+				zap.String("type", string(job.Type)),
+				zap.String("avatar_id", job.AvatarID),
+				zap.String("user_id", job.UserID),
+			)
 
-			// TODO: обработка изображения, результат в S3 и обновление статуса в БД.
-			if err := workerService.ProcessAvatar(ctx, job.AvatarID); err != nil {
-				logger.Log.Error("failed to process avatar", zap.Error(err))
-				if err := d.Nack(false, false); err != nil {
-					logger.Log.Error("rabbitmq nack failed", zap.Error(err))
-					return
-				}
+			// Обрабатываем задание
+			switch job.Type {
+			case rabbitmq.AvatarJobTypeProcess:
+				err = workerService.ProcessAvatar(ctx, job.AvatarID)
+			case rabbitmq.AvatarJobTypeDeleteByAvatarID:
+				err = workerService.DeleteAvatarByID(ctx, job.AvatarID)
+			case rabbitmq.AvatarJobTypeDeleteByUserID:
+				err = workerService.DeleteAvatarByUserID(ctx, job.UserID)
+			case rabbitmq.AvatarJobTypeDeleteByS3Key:
+				err = workerService.DeleteAvatarByS3Key(ctx, job.S3Key)
+			default:
+				err = fmt.Errorf("unsupported job type: %s", job.Type)
 			}
 
-			// Подтверждение обработки задания
+			// Если ошибка, выводим сообщение и отклоняем задание
+			if err != nil {
+				logger.Log.Error("avatar job failed",
+					zap.String("type", string(job.Type)),
+					zap.Error(err),
+				)
+				if nackErr := d.Nack(false, false); nackErr != nil {
+					logger.Log.Error("rabbitmq nack failed", zap.Error(nackErr))
+					return
+				}
+				continue
+			}
+
+			// Если задание успешно обработано, подтверждаем его
 			if err := d.Ack(false); err != nil {
 				logger.Log.Error("rabbitmq ack failed", zap.Error(err))
 				return

@@ -25,6 +25,7 @@ type AvatarJobPublisher interface {
 	PublishAvatarProcessingJob(ctx context.Context, avatarID string) error
 	PublishAvatarDeletionByIDJob(ctx context.Context, avatarID string) error
 	PublishAvatarDeletionByUserIDJob(ctx context.Context, userID string) error
+	PublishAvatarDeletionByS3KeyJob(ctx context.Context, s3Key string) error
 }
 
 // AvatarService Сервис для работы с аватарами
@@ -104,14 +105,40 @@ func (s *avatarService) UploadAvatar(ctx context.Context, userID string, file *m
 		}
 	}
 
-	// Сохраняем аватарку в базу данных
-	avatar, err := s.repo.UploadAvatar(ctx, userID, fileHeader.Filename, contentType, info.Size, info.Key, "[]", "completed", "pending")
+	// Получаем текущую аватарку пользователя
+	currentAvatar, err := s.repo.GetAvatarByUserID(ctx, userID)
 	if err != nil {
+		return nil, err
+	}
+
+	// Сохраняем новую аватарку в базу данных
+	avatar, err := s.repo.UploadAvatar(ctx, userID, fileHeader.Filename, contentType, info.Size, info.Key, "[]", "completed", "pending", currentAvatar.ID)
+	if err != nil {
+		// Отправляем задание на удаление загруженного файла из S3
+		if s.jobPublisher != nil {
+			if pubErr := s.jobPublisher.PublishAvatarDeletionByS3KeyJob(ctx, info.Key); pubErr != nil {
+				return nil, profileError.CustomError{
+					Message:    fmt.Sprintf("failed to enqueue avatar deletion: %s", pubErr),
+					StatusCode: http.StatusInternalServerError,
+				}
+			}
+		}
 		return nil, err
 	}
 
 	// Если publisher не nil, отправляем задание на обработку аватарки
 	if s.jobPublisher != nil {
+		// Если текущая аватарка не nil, отправляем задание на удаление текущей аватарки
+		if currentAvatar != nil {
+			if pubErr := s.jobPublisher.PublishAvatarDeletionByIDJob(ctx, currentAvatar.ID); pubErr != nil {
+				return nil, profileError.CustomError{
+					Message:    fmt.Sprintf("failed to enqueue avatar deletion: %s", pubErr),
+					StatusCode: http.StatusInternalServerError,
+				}
+			}
+		}
+
+		// Отправляем задание на обработку новой аватарки
 		if pubErr := s.jobPublisher.PublishAvatarProcessingJob(ctx, avatar.ID); pubErr != nil {
 			return nil, profileError.CustomError{
 				Message:    fmt.Sprintf("failed to enqueue avatar processing: %s", pubErr),

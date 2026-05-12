@@ -307,19 +307,45 @@ func (r *PostgresRepository) FindValidRefreshTokenByHash(ctx context.Context, to
 
 ////////////////////////////////////////////////////////////// МЕТОДЫ ДЛЯ РАБОТЫ С АВАТАРАМИ //////////////////////////////////////////////////////////////
 
-// UploadAvatar загружает аватарку
-func (r *PostgresRepository) UploadAvatar(ctx context.Context, userID string, fileName string, mimeType string, sizeBytes int64, s3Key string, thumbnailS3Keys string, uploadStatus string, processingStatus string) (*model.Avatar, error) {
-	row := r.db.QueryRowContext(ctx, `insert into avatars (user_id, file_name, mime_type, size_bytes, 
+// UploadAvatar загружает аватарку (если есть текущая аватарка, то удаляет её)
+func (r *PostgresRepository) UploadAvatar(ctx context.Context, userID string, fileName string, mimeType string, sizeBytes int64,
+	s3Key string, thumbnailS3Keys string, uploadStatus string, processingStatus string, currentAvatarID string) (*model.Avatar, error) {
+	// Начинаем транзакцию
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	// Удаляем текущую аватарку
+	if currentAvatarID != "" {
+		_, err = tx.ExecContext(ctx, "delete from avatars where id = $1", currentAvatarID)
+		if err != nil {
+			tx.Rollback()
+			return nil, err
+		}
+	}
+
+	// Сохраняем новую аватарку в базу данных
+	row := tx.QueryRowContext(ctx, `insert into avatars (user_id, file_name, mime_type, size_bytes, 
 	s3_key, thumbnail_s3_keys, upload_status, processing_status)
 	values ($1, $2, $3, $4, $5, $6, $7, $8) 
 	returning id, user_id, file_name, mime_type, size_bytes, s3_key, thumbnail_s3_keys, upload_status, processing_status, created_at, updated_at, deleted_at`,
 		userID, fileName, mimeType, sizeBytes, s3Key, thumbnailS3Keys, uploadStatus, processingStatus)
 
+	// Сканируем результат
 	var a model.Avatar
-	err := row.Scan(&a.ID, &a.UserID, &a.FileName, &a.MimeType, &a.SizeBytes,
+	err = row.Scan(&a.ID, &a.UserID, &a.FileName, &a.MimeType, &a.SizeBytes,
 		&a.S3Key, &a.ThumbnailS3Keys, &a.UploadStatus, &a.ProcessingStatus,
 		&a.CreatedAt, &a.UpdatedAt, &a.DeletedAt)
 
+	// Если ошибка, откатываем транзакцию
+	if err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+
+	// Фиксируем транзакцию
+	err = tx.Commit()
 	if err != nil {
 		return nil, err
 	}
@@ -366,6 +392,12 @@ func (r *PostgresRepository) GetAvatarByUserID(ctx context.Context, userID strin
 // DeleteAvatarByID удаляет аватарку по ID (мягкое удаление)
 func (r *PostgresRepository) DeleteAvatarByID(ctx context.Context, avatarID string) error {
 	_, err := r.db.ExecContext(ctx, "update avatars set deleted_at = $1 where id = $2", time.Now(), avatarID)
+	return err
+}
+
+// DeleteAvatarByS3Key удаляет аватарку по ключу (мягкое удаление)
+func (r *PostgresRepository) DeleteAvatarByS3Key(ctx context.Context, s3Key string) error {
+	_, err := r.db.ExecContext(ctx, "update avatars set deleted_at = $1 where s3_key = $2", time.Now(), s3Key)
 	return err
 }
 
