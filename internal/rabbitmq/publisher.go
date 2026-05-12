@@ -50,22 +50,6 @@ func (p *AvatarJobPublisher) PublishAvatarProcessingJob(ctx context.Context, ava
 	})
 }
 
-// PublishAvatarDeletionByIDJob ставит задание на очистку S3 (и т.п.) после удаления по avatar_id.
-func (p *AvatarJobPublisher) PublishAvatarDeletionByIDJob(ctx context.Context, avatarID string) error {
-	return p.publishJob(ctx, AvatarJobMessage{
-		Type:     AvatarJobTypeDeleteByAvatarID,
-		AvatarID: avatarID,
-	})
-}
-
-// PublishAvatarDeletionByUserIDJob ставит задание на очистку по user_id.
-func (p *AvatarJobPublisher) PublishAvatarDeletionByUserIDJob(ctx context.Context, userID string) error {
-	return p.publishJob(ctx, AvatarJobMessage{
-		Type:   AvatarJobTypeDeleteByUserID,
-		UserID: userID,
-	})
-}
-
 // PublishAvatarDeletionByS3KeyJob ставит задание на очистку S3 по ключу.
 func (p *AvatarJobPublisher) PublishAvatarDeletionByS3KeyJob(ctx context.Context, s3Key string) error {
 	return p.publishJob(ctx, AvatarJobMessage{

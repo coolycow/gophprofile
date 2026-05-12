@@ -11,10 +11,6 @@ type AvatarJobType string
 const (
 	// AvatarJobTypeProcess постобработка загруженного аватара.
 	AvatarJobTypeProcess AvatarJobType = "process"
-	// AvatarJobTypeDeleteByAvatarID удаление объекта аватара в S3/БД после удаления строки по avatar_id на API.
-	AvatarJobTypeDeleteByAvatarID AvatarJobType = "delete_by_avatar_id"
-	// AvatarJobTypeDeleteByUserID удаление по user_id (напр. ключи MinIO после DeleteAvatarByUserID в репозитории).
-	AvatarJobTypeDeleteByUserID AvatarJobType = "delete_by_user_id"
 	// AvatarJobTypeDeleteByS3Key удаление по s3_key (напр. ключи MinIO после DeleteAvatarByS3Key в репозитории).
 	AvatarJobTypeDeleteByS3Key AvatarJobType = "delete_by_s3_key"
 )
@@ -33,13 +29,9 @@ func (m *AvatarJobMessage) Validate() error {
 		return fmt.Errorf("rabbitmq: missing job type")
 	}
 	switch m.Type {
-	case AvatarJobTypeProcess, AvatarJobTypeDeleteByAvatarID:
+	case AvatarJobTypeProcess:
 		if m.AvatarID == "" {
 			return fmt.Errorf("rabbitmq: job %s requires avatar_id", m.Type)
-		}
-	case AvatarJobTypeDeleteByUserID:
-		if m.UserID == "" {
-			return fmt.Errorf("rabbitmq: job %s requires user_id", m.Type)
 		}
 	case AvatarJobTypeDeleteByS3Key:
 		if m.S3Key == "" {

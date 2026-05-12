@@ -7,6 +7,56 @@
 ## Фронтенд
 Ссылка на готовый фронтенд: [https://github.com/Yandex-Practicum/go-avatar-service-template](https://github.com/Yandex-Practicum/go-avatar-service-template).
 
+## База данных и миграции
+Используется контейнер `postgres` с именованным хранилищем.
+
+При первом запуске сервера или воркера запускаются необходимые для работы сервиса миграции.
+
+## Хранилище изображений
+Для хранения файлов используется MinIO.
+По умолчанию доступ:
+* API: http://127.0.0.1:9000
+* WebUI: http://127.0.0.1:9001
+
+Пользователь и пароль задаются в `.env` (переменные `MINIO_ROOT_USER` и `MINIO_ROOT_PASSWORD`).
+
+Название корзины, в которой хранятся аватарки пользователей, задаётся в переменной `MINIO_BUCKET_NAME`.
+
+## Сборка и запуск
+Для сборки:
+```bash
+docker compose build
+```
+
+Для запуска:
+```bash
+docker compose up -d
+```
+
+## Запросы
+### Загрузка аватарки
+POST /api/v1/avatars
+Content-Type: multipart/form-data
+Headers: X-User-ID: string
+
+### Получение аватарки
+GET /api/v1/avatars/{avatar_id}
+GET /api/v1/users/{user_id}/avatar
+
+### Удаление аватарки
+DELETE /api/v1/avatars/{avatar_id}
+DELETE /api/v1/users/{user_id}/avatar
+Headers: X-User-ID: string
+
+### Получение метаданных аватарки
+GET /api/v1/avatars/{avatar_id}/metadata
+
+### Список аватарок пользователя
+GET /api/v1/users/{user_id}/avatars
+
+### Проверка работоспособности
+GET /health
+
 ## Тестирование
 
 Для запуска теста из корня необходимо вызвать команду:

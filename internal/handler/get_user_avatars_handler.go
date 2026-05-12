@@ -14,6 +14,15 @@ func GetAvatarsByUserIDHandler(srv service.AvatarService) gin.HandlerFunc {
 		// Получаем ID пользователя из параметров запроса
 		userID := c.Param("user_id")
 
+		// Проверяем, является ли userID UUID
+		if err := ValidateUUID(userID); err != nil {
+			_ = c.Error(error.CustomError{
+				Message:    "Invalid UUID",
+				StatusCode: http.StatusBadRequest,
+			})
+			return
+		}
+
 		// Получаем список аватарок пользователя
 		avatars, err := srv.GetUserAvatars(c.Request.Context(), userID)
 

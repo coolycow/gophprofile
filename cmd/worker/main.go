@@ -167,10 +167,6 @@ func runConsumer(ctx context.Context, msgs <-chan amqp.Delivery, workerService s
 			switch job.Type {
 			case rabbitmq.AvatarJobTypeProcess:
 				err = workerService.ProcessAvatar(ctx, job.AvatarID)
-			case rabbitmq.AvatarJobTypeDeleteByAvatarID:
-				err = workerService.DeleteAvatarByID(ctx, job.AvatarID)
-			case rabbitmq.AvatarJobTypeDeleteByUserID:
-				err = workerService.DeleteAvatarByUserID(ctx, job.UserID)
 			case rabbitmq.AvatarJobTypeDeleteByS3Key:
 				err = workerService.DeleteAvatarByS3Key(ctx, job.S3Key)
 			default:

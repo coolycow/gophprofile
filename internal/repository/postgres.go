@@ -307,7 +307,7 @@ func (r *PostgresRepository) FindValidRefreshTokenByHash(ctx context.Context, to
 
 ////////////////////////////////////////////////////////////// МЕТОДЫ ДЛЯ РАБОТЫ С АВАТАРАМИ //////////////////////////////////////////////////////////////
 
-// UploadAvatar загружает аватарку (если есть текущая аватарка, то удаляет её)
+// UploadAvatar загружает аватарку (если есть текущая аватарка, то мягко удаляет её)
 func (r *PostgresRepository) UploadAvatar(ctx context.Context, userID string, fileName string, mimeType string, sizeBytes int64,
 	s3Key string, thumbnailS3Keys string, uploadStatus string, processingStatus string, currentAvatarID string) (*model.Avatar, error) {
 	// Начинаем транзакцию
@@ -316,9 +316,9 @@ func (r *PostgresRepository) UploadAvatar(ctx context.Context, userID string, fi
 		return nil, err
 	}
 
-	// Удаляем текущую аватарку
+	// Мягко удаляем текущую аватарку (если есть)
 	if currentAvatarID != "" {
-		_, err = tx.ExecContext(ctx, "delete from avatars where id = $1", currentAvatarID)
+		_, err = tx.ExecContext(ctx, "update avatars set deleted_at = $1 where id = $2", time.Now(), currentAvatarID)
 		if err != nil {
 			tx.Rollback()
 			return nil, err

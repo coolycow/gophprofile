@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"mime/multipart"
 	"net/http"
 	"strconv"
@@ -20,11 +21,9 @@ import (
 	"github.com/minio/minio-go/v7"
 )
 
-// AvatarJobPublisher асинхронно ставит задание на обработку аватара (например в RabbitMQ).
+// AvatarJobPublisher асинхронно ставит задание на обработку аватара в RabbitMQ.
 type AvatarJobPublisher interface {
 	PublishAvatarProcessingJob(ctx context.Context, avatarID string) error
-	PublishAvatarDeletionByIDJob(ctx context.Context, avatarID string) error
-	PublishAvatarDeletionByUserIDJob(ctx context.Context, userID string) error
 	PublishAvatarDeletionByS3KeyJob(ctx context.Context, s3Key string) error
 }
 
@@ -39,6 +38,9 @@ type AvatarService interface {
 	DeleteAvatarByUserID(ctx context.Context, callerUserID, pathUserID string) error
 
 	GetUserAvatars(ctx context.Context, userID string) ([]*model.Avatar, error)
+
+	// OpenAvatarObject открывает объект в MinIO по ключу из строки avatar (вызывающий обязан Close()).
+	OpenAvatarObject(ctx context.Context, avatar *model.Avatar) (*minio.Object, error)
 }
 
 // Реализация сервисного слоя
@@ -71,10 +73,32 @@ func (s *avatarService) UploadAvatar(ctx context.Context, userID string, file *m
 		}
 	}
 
-	// Валидация MIME типа (изображение, форматы: jpeg, png, webp)
-	if err := s.validator.Var(fileHeader.Header.Get("Content-Type"), "required,mime:image/jpeg,image/png,image/webp"); err != nil {
+	// Валидация MIME (validator не регистрирует тег mime по умолчанию — используем net/mime)
+	rawCT := strings.TrimSpace(fileHeader.Header.Get("Content-Type"))
+	if rawCT == "" {
 		return nil, profileError.CustomError{
-			Message:    fmt.Sprintf("mime type validation failed: %s", err),
+			Message:    "content type is required",
+			StatusCode: http.StatusBadRequest,
+		}
+	}
+
+	// Парсим MIME тип
+	mediaType, _, err := mime.ParseMediaType(rawCT)
+	if err != nil {
+		return nil, profileError.CustomError{
+			Message:    fmt.Sprintf("invalid content type: %s", err),
+			StatusCode: http.StatusBadRequest,
+		}
+	}
+
+	// Проверяем, является ли MIME тип изображением
+	// Если тип соответствует, то продолжаем
+	// Если тип не соответствует, то возвращаем ошибку
+	switch mediaType {
+	case "image/jpeg", "image/png", "image/webp":
+	default:
+		return nil, profileError.CustomError{
+			Message:    fmt.Sprintf("mime type not allowed: %s (allowed: image/jpeg, image/png, image/webp)", mediaType),
 			StatusCode: http.StatusBadRequest,
 		}
 	}
@@ -91,7 +115,7 @@ func (s *avatarService) UploadAvatar(ctx context.Context, userID string, file *m
 	// Сохраняем файл в хранилище MinIO
 	bucketName := s.cfg.MinioBucketName
 	objectName := fmt.Sprintf("%s/%s", userID, fileHeader.Filename)
-	contentType := fileHeader.Header.Get("Content-Type")
+	contentType := mediaType
 
 	info, err := s.minioClient.PutObject(ctx, bucketName, objectName, bytes.NewReader(reader), fileHeader.Size, minio.PutObjectOptions{
 		ContentType: contentType,
@@ -105,10 +129,14 @@ func (s *avatarService) UploadAvatar(ctx context.Context, userID string, file *m
 		}
 	}
 
-	// Получаем текущую аватарку пользователя
-	currentAvatar, err := s.repo.GetAvatarByUserID(ctx, userID)
-	if err != nil {
-		return nil, err
+	// Текущая аватарка (если есть) — заменяем при новой загрузке
+	currentAvatar := &model.Avatar{}
+	if cur, err := s.repo.GetAvatarByUserID(ctx, userID); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+	} else if cur != nil {
+		currentAvatar = cur
 	}
 
 	// Сохраняем новую аватарку в базу данных
@@ -128,9 +156,9 @@ func (s *avatarService) UploadAvatar(ctx context.Context, userID string, file *m
 
 	// Если publisher не nil, отправляем задание на обработку аватарки
 	if s.jobPublisher != nil {
-		// Если текущая аватарка не nil, отправляем задание на удаление текущей аватарки
+		// Старая аватарка уже снята с записи в БД внутри UploadAvatar; ставим задачу на очистку S3 и т.п.
 		if currentAvatar != nil {
-			if pubErr := s.jobPublisher.PublishAvatarDeletionByIDJob(ctx, currentAvatar.ID); pubErr != nil {
+			if pubErr := s.jobPublisher.PublishAvatarDeletionByS3KeyJob(ctx, currentAvatar.S3Key); pubErr != nil {
 				return nil, profileError.CustomError{
 					Message:    fmt.Sprintf("failed to enqueue avatar deletion: %s", pubErr),
 					StatusCode: http.StatusInternalServerError,
@@ -160,12 +188,21 @@ func (s *avatarService) GetAvatarByUserID(ctx context.Context, userID string) (*
 	return s.repo.GetAvatarByUserID(ctx, userID)
 }
 
+// OpenAvatarObject открывает поток объекта в MinIO для записи из БД.
+func (s *avatarService) OpenAvatarObject(ctx context.Context, avatar *model.Avatar) (*minio.Object, error) {
+	if avatar == nil || strings.TrimSpace(avatar.S3Key) == "" {
+		return nil, fmt.Errorf("avatar or s3 key is empty")
+	}
+	return s.minioClient.GetObject(ctx, s.cfg.MinioBucketName, avatar.S3Key, minio.GetObjectOptions{})
+}
+
 // DeleteAvatarByID удаляет аватарку по ID, если callerUserID совпадает с владельцем.
 func (s *avatarService) DeleteAvatarByID(ctx context.Context, callerUserID, avatarID string) error {
 	callerUserID = strings.TrimSpace(callerUserID)
 	avatarID = strings.TrimSpace(avatarID)
 
-	a, err := s.repo.GetAvatarByID(ctx, avatarID)
+	// Получаем аватарку по ID
+	avatar, err := s.repo.GetAvatarByID(ctx, avatarID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return profileError.CustomError{
@@ -176,7 +213,8 @@ func (s *avatarService) DeleteAvatarByID(ctx context.Context, callerUserID, avat
 		return err
 	}
 
-	if !strings.EqualFold(strings.TrimSpace(a.UserID), callerUserID) {
+	// Проверяем, совпадает ли ID владельца аватарки с ID пользователя, который пытается удалить аватарку
+	if !strings.EqualFold(strings.TrimSpace(avatar.UserID), callerUserID) {
 		return profileError.CustomError{
 			Message:    "Forbidden",
 			Details:    "You can only delete your own avatars",
@@ -184,14 +222,15 @@ func (s *avatarService) DeleteAvatarByID(ctx context.Context, callerUserID, avat
 		}
 	}
 
+	// Удаляем аватарку по ID из базы данных
 	err = s.repo.DeleteAvatarByID(ctx, avatarID)
 	if err != nil {
 		return err
 	}
 
-	// Если publisher не nil, отправляем задание на удаление аватарки
+	// Если publisher не nil, отправляем задание на удаление аватарки из хранилища
 	if s.jobPublisher != nil {
-		if pubErr := s.jobPublisher.PublishAvatarDeletionByIDJob(ctx, avatarID); pubErr != nil {
+		if pubErr := s.jobPublisher.PublishAvatarDeletionByS3KeyJob(ctx, avatar.S3Key); pubErr != nil {
 			return profileError.CustomError{
 				Message:    fmt.Sprintf("failed to enqueue avatar deletion: %s", pubErr),
 				StatusCode: http.StatusInternalServerError,
@@ -207,6 +246,7 @@ func (s *avatarService) DeleteAvatarByUserID(ctx context.Context, callerUserID, 
 	callerUserID = strings.TrimSpace(callerUserID)
 	pathUserID = strings.TrimSpace(pathUserID)
 
+	// Проверяем, совпадает ли ID владельца аватарки с ID пользователя, который пытается удалить аватарку
 	if !strings.EqualFold(callerUserID, pathUserID) {
 		return profileError.CustomError{
 			Message:    "Forbidden",
@@ -215,7 +255,8 @@ func (s *avatarService) DeleteAvatarByUserID(ctx context.Context, callerUserID, 
 		}
 	}
 
-	_, err := s.repo.GetAvatarByUserID(ctx, pathUserID)
+	// Получаем аватарку по ID пользователя
+	avatar, err := s.repo.GetAvatarByUserID(ctx, pathUserID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return profileError.CustomError{
@@ -226,14 +267,15 @@ func (s *avatarService) DeleteAvatarByUserID(ctx context.Context, callerUserID, 
 		return err
 	}
 
+	// Удаляем аватарку по ID пользователя из базы данных
 	err = s.repo.DeleteAvatarByUserID(ctx, pathUserID)
 	if err != nil {
 		return err
 	}
 
-	// Если publisher не nil, отправляем задание на удаление аватарки
+	// Если publisher не nil, отправляем задание на удаление аватарки из хранилища
 	if s.jobPublisher != nil {
-		if pubErr := s.jobPublisher.PublishAvatarDeletionByUserIDJob(ctx, pathUserID); pubErr != nil {
+		if pubErr := s.jobPublisher.PublishAvatarDeletionByS3KeyJob(ctx, avatar.S3Key); pubErr != nil {
 			return profileError.CustomError{
 				Message:    fmt.Sprintf("failed to enqueue avatar deletion: %s", pubErr),
 				StatusCode: http.StatusInternalServerError,
