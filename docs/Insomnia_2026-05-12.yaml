@@ -1,0 +1,260 @@
+type: collection.insomnia.rest/5.0
+schema_version: "5.1"
+name: GophProfile
+meta:
+  id: wrk_0ce802dbea20446d8c8e5284957349e9
+  created: 1778514154947
+  modified: 1778514154947
+  description: ""
+collection:
+  - url: "{{ _.serverURL }}/health"
+    name: Health
+    meta:
+      id: req_f94ea7c4b7354a01a57af4fff36dde52
+      created: 1778514600457
+      modified: 1778514683967
+      isPrivate: false
+      description: ""
+      sortKey: -1778514600457
+    method: GET
+    headers:
+      - name: User-Agent
+        value: insomnia/12.5.0
+        description: ""
+        disabled: false
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+  - url: "{{ _.apiURL }}/auth/register"
+    name: Register
+    meta:
+      id: req_56ed53c6cfd94e598598c94d1902575b
+      created: 1778521661078
+      modified: 1778594230552
+      isPrivate: false
+      description: ""
+      sortKey: -1778521661078
+    method: POST
+    body:
+      mimeType: application/json
+      text: |-
+        {
+        	"email": "test_1@gmail.com",
+        	"password": "qwerty1232"
+        }
+    headers:
+      - name: Content-Type
+        value: application/json
+      - name: User-Agent
+        value: insomnia/12.5.0
+        description: ""
+        disabled: false
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+  - url: "{{ _.apiURL }}/avatars/18e61b5e-c6b8-450c-9e55-8a0eb19228f3"
+    name: /avatars/:avatar_id
+    meta:
+      id: req_af090f88b9124b28b42f16407d975c80
+      created: 1778522122609
+      modified: 1778576610532
+      isPrivate: false
+      description: ""
+      sortKey: -1778521949534.875
+    method: GET
+    headers:
+      - name: User-Agent
+        value: insomnia/12.5.0
+        description: ""
+        disabled: false
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+  - url: "{{ _.apiURL }}/avatars/aa28a5cc-5134-4c33-957c-0a6025e13665/metadata"
+    name: /avatars/:avatar_id/metadata
+    meta:
+      id: req_cdae40e1311a4cb0972dde504844f44f
+      created: 1778522183888
+      modified: 1778596019235
+      isPrivate: false
+      description: ""
+      sortKey: -1778521891843.5
+    method: GET
+    headers:
+      - name: User-Agent
+        value: insomnia/12.5.0
+        description: ""
+        disabled: false
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+  - url: "{{ _.apiURL }}/users/44c1b1ad-17b1-4800-a03b-965ee9e47465/avatar"
+    name: /users/:user_id/avatar
+    meta:
+      id: req_fb4a01f7923b4cde847435bc26a4bdd8
+      created: 1778522213423
+      modified: 1778588778320
+      isPrivate: false
+      description: ""
+      sortKey: -1778521776460.75
+    method: GET
+    headers:
+      - name: User-Agent
+        value: insomnia/12.5.0
+        description: ""
+        disabled: false
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+  - url: "{{ _.apiURL }}/users/44c1b1ad-17b1-4800-a03b-965ee9e47465/avatars"
+    name: /users/:user_id/avatars
+    meta:
+      id: req_b4fc9dd660444989bfdd6ea696364834
+      created: 1778522275955
+      modified: 1778588832247
+      isPrivate: false
+      description: ""
+      sortKey: -1778521718769.375
+    method: GET
+    headers:
+      - name: User-Agent
+        value: insomnia/12.5.0
+        description: ""
+        disabled: false
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+  - url: "{{ _.apiURL }}/avatars"
+    name: /avatars
+    meta:
+      id: req_ed1342657c8b4fa1ba47c5172d5fda1a
+      created: 1778522341879
+      modified: 1778595420128
+      isPrivate: false
+      description: ""
+      sortKey: -1778522122709
+    method: POST
+    body:
+      mimeType: multipart/form-data
+      params:
+        - name: image
+          value: ""
+          description: ""
+          disabled: false
+          fileName: E:\Yandex.Disk\Картинки\_DpTRwyfw0c.jpg
+          type: file
+    headers:
+      - name: Content-Type
+        value: multipart/form-data
+      - name: User-Agent
+        value: insomnia/12.5.0
+        description: ""
+        disabled: false
+      - name: X-User-ID
+        value: 3b45d3ee-d527-4ed9-879e-4188ebac9569
+        description: ""
+        disabled: false
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+  - url: "{{ _.apiURL }}/avatars/2e263121-08f4-408d-a31b-0d76013f620a"
+    name: /avatars/:avatar_id
+    meta:
+      id: req_599ce71a39af4fd0a971d78b51837302
+      created: 1778522362250
+      modified: 1778594461430
+      isPrivate: false
+      description: ""
+      sortKey: -1778522007226.25
+    method: DELETE
+    headers:
+      - name: User-Agent
+        value: insomnia/12.5.0
+        description: ""
+        disabled: false
+      - name: X-User-ID
+        value: 3b45d3ee-d527-4ed9-879e-4188ebac9569
+        description: ""
+        disabled: false
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+  - url: "{{ _.apiURL }}/users/1/avatars"
+    name: /users/:user_id/avatar
+    meta:
+      id: req_5bb9c6bc21f24d1fbfe2cadb8b3d1b27
+      created: 1778522387227
+      modified: 1778522391697
+      isPrivate: false
+      description: ""
+      sortKey: -1778521747615.0625
+    method: DELETE
+    headers:
+      - name: User-Agent
+        value: insomnia/12.5.0
+        description: ""
+        disabled: false
+    settings:
+      renderRequestBody: true
+      encodeUrl: true
+      followRedirects: global
+      cookies:
+        send: true
+        store: true
+      rebuildPath: true
+cookieJar:
+  name: Default Jar
+  meta:
+    id: jar_b4b02a6d54fe8b8b62f4b00ee9a70ba4b2869c3d
+    created: 1778514154949
+    modified: 1778514154949
+environments:
+  name: Base Environment
+  meta:
+    id: env_b4b02a6d54fe8b8b62f4b00ee9a70ba4b2869c3d
+    created: 1778514154948
+    modified: 1778521929281
+    isPrivate: false
+  data:
+    serverURL: http://localhost:8333
+    apiURL: "{{_.serverURL}}/api/v1"
