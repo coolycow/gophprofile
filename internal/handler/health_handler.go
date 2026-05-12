@@ -7,7 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// HealthHandler проверяет доступность сервиса
+// HealthHandler проверяет доступность сервиса.
 func HealthHandler(srv service.HealthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		dbStatus := "ok"
@@ -15,9 +15,13 @@ func HealthHandler(srv service.HealthService) gin.HandlerFunc {
 		rabbitmqStatus := "ok"
 		workerStatus := "ok"
 
+		// Проверяем доступность БД
 		dbError := srv.CheckDatabaseStatus(c.Request.Context())
+		// Проверяем доступность MinIO
 		minioError := srv.CheckMinioStatus(c.Request.Context())
+		// Проверяем доступность RabbitMQ
 		rabbitmqError := srv.CheckRabbitMQStatus(c.Request.Context())
+		// Проверяем доступность воркера
 		workerError := srv.CheckWorkerStatus(c.Request.Context())
 
 		if dbError != nil {
@@ -36,6 +40,13 @@ func HealthHandler(srv service.HealthService) gin.HandlerFunc {
 			workerStatus = workerError.Error()
 		}
 
-		c.JSON(http.StatusOK, gin.H{"database": dbStatus, "minio": minioStatus, "rabbitmq": rabbitmqStatus, "worker": workerStatus})
+		// Если есть ошибки, то возвращаем 503 Service Unavailable
+		status := http.StatusOK
+		if dbError != nil || minioError != nil || rabbitmqError != nil || workerError != nil {
+			status = http.StatusServiceUnavailable
+		}
+
+		// Возвращаем статус и информацию о доступности сервисов
+		c.JSON(status, gin.H{"database": dbStatus, "minio": minioStatus, "rabbitmq": rabbitmqStatus, "worker": workerStatus})
 	}
 }

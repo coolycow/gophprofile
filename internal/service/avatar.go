@@ -10,7 +10,6 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/coolycow/gophprofile/internal/config"
@@ -18,7 +17,6 @@ import (
 	"github.com/coolycow/gophprofile/internal/logger"
 	"github.com/coolycow/gophprofile/internal/model"
 	"github.com/coolycow/gophprofile/internal/repository"
-	"github.com/go-playground/validator/v10"
 	"github.com/minio/minio-go/v7"
 	"go.uber.org/zap"
 )
@@ -31,7 +29,7 @@ type AvatarJobPublisher interface {
 
 // AvatarService Сервис для работы с аватарами
 type AvatarService interface {
-	UploadAvatar(ctx context.Context, userID string, file *multipart.File, fileHeader *multipart.FileHeader) (*model.Avatar, error)
+	UploadAvatar(ctx context.Context, userID string, file io.Reader, fileHeader *multipart.FileHeader) (*model.Avatar, error)
 
 	GetAvatarByID(ctx context.Context, avatarID string) (*model.Avatar, error)
 	GetAvatarByUserID(ctx context.Context, userID string) (*model.Avatar, error)
@@ -43,13 +41,15 @@ type AvatarService interface {
 
 	// OpenAvatarObject открывает объект в MinIO по ключу из строки avatar (вызывающий обязан Close()).
 	OpenAvatarObject(ctx context.Context, avatar *model.Avatar) (*minio.Object, error)
+
+	// PrepareAvatarDownload готовит тело ответа GET с учётом size/format (оригинал или миниатюра, перекодирование jpeg/png).
+	PrepareAvatarDownload(ctx context.Context, avatar *model.Avatar, size, format string) (*AvatarDownload, error)
 }
 
 // Реализация сервисного слоя
 type avatarService struct {
 	repo         repository.GophProfileRepository
 	cfg          *config.ConfigServer
-	validator    *validator.Validate
 	minioClient  *minio.Client
 	jobPublisher AvatarJobPublisher
 }
@@ -59,58 +59,75 @@ func NewAvatarService(cfg *config.ConfigServer, repo repository.GophProfileRepos
 	return &avatarService{
 		repo:         repo,
 		cfg:          cfg,
-		validator:    validator.New(),
 		minioClient:  minioClient,
 		jobPublisher: jobPublisher,
 	}
 }
 
 // UploadAvatar загружает аватарку
-func (s *avatarService) UploadAvatar(ctx context.Context, userID string, file *multipart.File, fileHeader *multipart.FileHeader) (*model.Avatar, error) {
-	// Валидация файла
-	if err := s.validator.Var(fileHeader.Size, "required,min=1,max="+strconv.Itoa(s.cfg.MaxFileSize)); err != nil {
-		return nil, profileError.CustomError{
-			Message:    fmt.Sprintf("file size validation failed: %s", err),
-			StatusCode: http.StatusBadRequest,
-		}
+func (s *avatarService) UploadAvatar(ctx context.Context, userID string, file io.Reader, fileHeader *multipart.FileHeader) (*model.Avatar, error) {
+	// Получаем максимальный размер файла
+	maxB := s.cfg.MaxFileSize
+	if maxB < 1 {
+		maxB = 1 << 20
 	}
 
-	// Валидация MIME (validator не регистрирует тег mime по умолчанию — используем net/mime)
+	// Получаем Content-Type из заголовка файла
 	rawCT := strings.TrimSpace(fileHeader.Header.Get("Content-Type"))
 	if rawCT == "" {
 		return nil, profileError.CustomError{
-			Message:    "content type is required",
+			Message:    "Invalid file format",
+			Details:    "Supported formats: jpeg, png, webp",
 			StatusCode: http.StatusBadRequest,
 		}
 	}
 
-	// Парсим MIME тип
+	// Парсим Content-Type из заголовка файла
 	mediaType, _, err := mime.ParseMediaType(rawCT)
 	if err != nil {
 		return nil, profileError.CustomError{
-			Message:    fmt.Sprintf("invalid content type: %s", err),
+			Message:    "Invalid file format",
+			Details:    "Supported formats: jpeg, png, webp",
 			StatusCode: http.StatusBadRequest,
 		}
 	}
 
-	// Проверяем, является ли MIME тип изображением
-	// Если тип соответствует, то продолжаем
-	// Если тип не соответствует, то возвращаем ошибку
+	// Проверяем, поддерживается ли Content-Type
 	switch mediaType {
 	case "image/jpeg", "image/png", "image/webp":
 	default:
 		return nil, profileError.CustomError{
-			Message:    fmt.Sprintf("mime type not allowed: %s (allowed: image/jpeg, image/png, image/webp)", mediaType),
+			Message:    "Invalid file format",
+			Details:    "Supported formats: jpeg, png, webp",
 			StatusCode: http.StatusBadRequest,
 		}
 	}
 
-	// Читаем файл в память
-	reader, err := io.ReadAll(*file)
+	// Читаем файл с ограничением размера
+	limited := io.LimitReader(file, int64(maxB)+1)
+	reader, err := io.ReadAll(limited)
 	if err != nil {
 		return nil, profileError.CustomError{
-			Message:    fmt.Sprintf("failed to open file: %s", err),
+			Message:    fmt.Sprintf("failed to read file: %s", err),
 			StatusCode: http.StatusInternalServerError,
+		}
+	}
+
+	// Проверяем, пустой ли файл
+	if len(reader) == 0 {
+		return nil, profileError.CustomError{
+			Message:    "Invalid file format",
+			Details:    "empty file",
+			StatusCode: http.StatusBadRequest,
+		}
+	}
+
+	// Проверяем, не превышает ли размер файла максимальный размер
+	if len(reader) > maxB {
+		return nil, profileError.CustomError{
+			Message:    "File too large",
+			StatusCode: http.StatusRequestEntityTooLarge,
+			Meta:       map[string]any{"max_size": int64(maxB)},
 		}
 	}
 
@@ -118,8 +135,9 @@ func (s *avatarService) UploadAvatar(ctx context.Context, userID string, file *m
 	bucketName := s.cfg.MinioBucketName
 	objectName := fmt.Sprintf("%s/%s", userID, fileHeader.Filename)
 	contentType := mediaType
+	n := int64(len(reader))
 
-	info, err := s.minioClient.PutObject(ctx, bucketName, objectName, bytes.NewReader(reader), fileHeader.Size, minio.PutObjectOptions{
+	info, err := s.minioClient.PutObject(ctx, bucketName, objectName, bytes.NewReader(reader), n, minio.PutObjectOptions{
 		ContentType: contentType,
 	})
 

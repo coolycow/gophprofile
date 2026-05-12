@@ -23,6 +23,8 @@ func NewRouter(
 ) *gin.Engine {
 	router := gin.Default()
 
+	router.Use(middleware.CORS(cfg))
+	router.Use(middleware.RateLimit(cfg))
 	router.Use(gzip.Gzip(gzip.DefaultCompression))
 	router.Use(middleware.RequestLogger())
 	router.Use(middleware.ErrorHandler())

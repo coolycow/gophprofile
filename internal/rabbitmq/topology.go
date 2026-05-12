@@ -5,13 +5,33 @@ import (
 )
 
 const (
-	// QueueAvatarJobs — durable-очередь заданий на обработку аватаров (общая для сервера и воркера).
+	// ExchangeAvatars — topic exchange для заданий аватаров (как в ТЗ: direct/topic).
+	ExchangeAvatars = "avatars.exchange"
+	// RoutingKeyAvatarProcess — постобработка (миниатюры).
+	RoutingKeyAvatarProcess = "avatar.process"
+	// RoutingKeyAvatarDelete — удаление объектов в S3.
+	RoutingKeyAvatarDelete = "avatar.delete"
+	// QueueAvatarJobs — durable-очередь заданий (общая для server и worker).
 	QueueAvatarJobs = "gophprofile.avatars"
 )
 
-// EnsureAvatarJobsQueue объявляет очередь идемпотентно при совместимых аргументах.
-func EnsureAvatarJobsQueue(ch *amqp.Channel) (amqp.Queue, error) {
-	return ch.QueueDeclare(
+// EnsureAvatarsTopology объявляет exchange topic, очередь и привязки routing key.
+func EnsureAvatarsTopology(ch *amqp.Channel) (amqp.Queue, error) {
+	// Объявляем exchange topic
+	if err := ch.ExchangeDeclare(
+		ExchangeAvatars,
+		"topic",
+		true,
+		false,
+		false,
+		false,
+		nil,
+	); err != nil {
+		return amqp.Queue{}, err
+	}
+
+	// Объявляем очередь
+	q, err := ch.QueueDeclare(
 		QueueAvatarJobs,
 		true,
 		false,
@@ -19,4 +39,16 @@ func EnsureAvatarJobsQueue(ch *amqp.Channel) (amqp.Queue, error) {
 		false,
 		nil,
 	)
+	if err != nil {
+		return amqp.Queue{}, err
+	}
+
+	// Привязываем очередь к routing key
+	for _, rk := range []string{RoutingKeyAvatarProcess, RoutingKeyAvatarDelete} {
+		if err := ch.QueueBind(q.Name, rk, ExchangeAvatars, false, nil); err != nil {
+			return amqp.Queue{}, err
+		}
+	}
+
+	return q, nil
 }

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/coolycow/gophprofile/internal/config"
 	"github.com/coolycow/gophprofile/internal/logger"
@@ -97,19 +98,25 @@ func main() {
 	}
 	defer rabbitConn.Close()
 
-	// Создание канала для работы с RabbitMQ
+	// Канал для потребления
 	ch, err := rabbitConn.Channel()
 	if err != nil {
 		logger.Log.Fatal("Failed to open a channel", zap.Error(err))
 	}
 	defer ch.Close()
 
-	// Объявление очереди
-	queue, err := rabbitmq.EnsureAvatarJobsQueue(ch)
+	// Отдельный канал для republish (не смешиваем publish/consume на одном канале).
+	pubCh, err := rabbitConn.Channel()
 	if err != nil {
-		logger.Log.Fatal("Failed to declare avatar jobs queue", zap.Error(err))
+		logger.Log.Fatal("Failed to open publish channel", zap.Error(err))
 	}
-	logger.Log.Info("Declared queue successfully", zap.String("queue", queue.Name))
+	defer pubCh.Close()
+
+	queue, err := rabbitmq.EnsureAvatarsTopology(ch)
+	if err != nil {
+		logger.Log.Fatal("Failed to declare RabbitMQ topology", zap.Error(err))
+	}
+	logger.Log.Info("Declared RabbitMQ topology", zap.String("queue", queue.Name))
 
 	// Регистрация потребителя
 	consumerTag := fmt.Sprintf("%s-%d", rabbitmq.ConsumerTagDefault, os.Getpid())
@@ -126,29 +133,25 @@ func main() {
 		}
 	}()
 
-	// Запуск потребителя
-	runConsumer(ctx, msgs, workerService)
+	runConsumer(ctx, msgs, workerService, pubCh)
 }
 
 // runConsumer обрабатывает доставки до отмены контекста или закрытия канала.
-func runConsumer(ctx context.Context, msgs <-chan amqp.Delivery, workerService service.WorkerService) {
+func runConsumer(ctx context.Context, msgs <-chan amqp.Delivery, workerService service.WorkerService, pubCh *amqp.Channel) {
 	for {
 		select {
-		// Завершение работы потребителя
 		case <-ctx.Done():
 			logger.Log.Info("worker stopping (context canceled)")
 			return
-		// Получение задания
 		case d, ok := <-msgs:
 			if !ok {
 				logger.Log.Info("rabbit consumer channel closed")
 				return
 			}
 
-			// Декодируем задание
-			job, err := rabbitmq.DecodeAvatarJob(d.Body)
-			if err != nil {
-				logger.Log.Warn("invalid job payload", zap.Error(err), zap.String("body", string(d.Body)))
+			job, decErr := rabbitmq.DecodeAvatarJob(d.Body)
+			if decErr != nil {
+				logger.Log.Warn("invalid job payload", zap.Error(decErr), zap.String("body", string(d.Body)))
 				if nackErr := d.Nack(false, false); nackErr != nil {
 					logger.Log.Error("rabbitmq nack failed", zap.Error(nackErr))
 					return
@@ -156,16 +159,16 @@ func runConsumer(ctx context.Context, msgs <-chan amqp.Delivery, workerService s
 				continue
 			}
 
-			// Выводим информацию о полученном задании
 			logger.Log.Info("received avatar job",
 				zap.String("type", string(job.Type)),
 				zap.String("avatar_id", job.AvatarID),
 				zap.String("user_id", job.UserID),
 				zap.String("s3_key", job.S3Key),
 				zap.Strings("thumbnail_s3_keys", job.ThumbnailS3Keys),
+				zap.Int("retry", rabbitmq.HeaderRetryCount(d.Headers)),
 			)
 
-			// Обрабатываем задание
+			var err error
 			switch job.Type {
 			case rabbitmq.AvatarJobTypeProcess:
 				err = workerService.ProcessAvatar(ctx, job.AvatarID)
@@ -175,12 +178,34 @@ func runConsumer(ctx context.Context, msgs <-chan amqp.Delivery, workerService s
 				err = fmt.Errorf("unsupported job type: %s", job.Type)
 			}
 
-			// Если ошибка, выводим сообщение и отклоняем задание
 			if err != nil {
 				logger.Log.Error("avatar job failed",
 					zap.String("type", string(job.Type)),
 					zap.Error(err),
 				)
+				retry := rabbitmq.HeaderRetryCount(d.Headers)
+				if rabbitmq.IsTransientAvatarJobError(err) && retry < rabbitmq.MaxAvatarJobRetries {
+					delay := rabbitmq.RetryBackoffDuration(retry)
+					select {
+					case <-ctx.Done():
+						_ = d.Nack(false, true)
+						return
+					case <-time.After(delay):
+					}
+					if rerr := rabbitmq.RepublishAvatarJob(ctx, pubCh, d.Body, job, retry+1); rerr != nil {
+						logger.Log.Error("republish avatar job failed", zap.Error(rerr))
+						if nackErr := d.Nack(false, false); nackErr != nil {
+							logger.Log.Error("rabbitmq nack failed", zap.Error(nackErr))
+							return
+						}
+						continue
+					}
+					if ackErr := d.Ack(false); ackErr != nil {
+						logger.Log.Error("rabbitmq ack failed", zap.Error(ackErr))
+						return
+					}
+					continue
+				}
 				if nackErr := d.Nack(false, false); nackErr != nil {
 					logger.Log.Error("rabbitmq nack failed", zap.Error(nackErr))
 					return
@@ -188,7 +213,6 @@ func runConsumer(ctx context.Context, msgs <-chan amqp.Delivery, workerService s
 				continue
 			}
 
-			// Если задание успешно обработано, подтверждаем его
 			if err := d.Ack(false); err != nil {
 				logger.Log.Error("rabbitmq ack failed", zap.Error(err))
 				return

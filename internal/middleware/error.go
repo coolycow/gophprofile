@@ -21,14 +21,14 @@ func ErrorHandler() gin.HandlerFunc {
 				if errors.As(ginErr.Err, &customErr) {
 					if strings.HasPrefix(c.Request.URL.Path, "/api/") {
 						if customErr.StatusCode != http.StatusConflict {
+							body := gin.H{"error": customErr.Message}
 							if customErr.Details != "" {
-								c.JSON(customErr.StatusCode, gin.H{
-									"error":   customErr.Message,
-									"details": customErr.Details,
-								})
-							} else {
-								c.JSON(customErr.StatusCode, gin.H{"error": customErr.Message})
+								body["details"] = customErr.Details
 							}
+							for k, v := range customErr.Meta {
+								body[k] = v
+							}
+							c.JSON(customErr.StatusCode, body)
 						} else {
 							c.JSON(customErr.StatusCode, gin.H{"result": customErr.Message})
 						}

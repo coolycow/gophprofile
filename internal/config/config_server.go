@@ -47,6 +47,15 @@ type ConfigServer struct {
 	RabbitMQUser     string `env:"RABBITMQ_USER" json:"rabbitmq_user,omitempty"`         // Пользователь RabbitMQ
 	RabbitMQPassword string `env:"RABBITMQ_PASSWORD" json:"rabbitmq_password,omitempty"` // Пароль RabbitMQ
 	RabbitMQVHost    string `env:"RABBITMQ_VHOST" json:"rabbitmq_vhost,omitempty"`       // Виртуальный хост
+
+	// CORSAllowedOrigins — список origin через запятую; "*" разрешает любые (удобно для dev).
+	CORSAllowedOrigins string `json:"cors_allowed_origins,omitempty"`
+	// RateLimitEnabled включает ограничение частоты запросов по IP (кроме /health).
+	RateLimitEnabled bool `json:"rate_limit_enabled,omitempty"`
+	// RateLimitRPS — среднее число запросов в секунду на IP (token bucket).
+	RateLimitRPS float64 `json:"rate_limit_rps,omitempty"`
+	// RateLimitBurst — размер «ведра» burst для rate limit.
+	RateLimitBurst int `json:"rate_limit_burst,omitempty"`
 }
 
 // fileConfig — JSON-файл; указатели задают поля, явно присутствующие в файле.
@@ -102,6 +111,7 @@ func (c *ConfigServer) PrintServerConfig() {
 	fmt.Fprintf(&b, "MaxFileSize=%d; ", c.MaxFileSize)
 	fmt.Fprintf(&b, "MinioEndpoint=%s MinioAccessKey=%s MinioSecretKey=%s MinioBucketName=%s MinioUseSSL=%t MinioPublicBaseURL=%s; ", c.MinioEndpoint, c.MinioAccessKey, c.MinioSecretKey, c.MinioBucketName, c.MinioUseSSL, c.MinioPublicBaseURL)
 	fmt.Fprintf(&b, "RabbitMQHost=%s RabbitMQPort=%d RabbitMQUser=%s RabbitMQPassword=%s RabbitMQVHost=%s; ", c.RabbitMQHost, c.RabbitMQPort, c.RabbitMQUser, c.RabbitMQPassword, c.RabbitMQVHost)
+	fmt.Fprintf(&b, "CORSAllowedOrigins=%s RateLimitEnabled=%t RateLimitRPS=%.2f RateLimitBurst=%d; ", c.CORSAllowedOrigins, c.RateLimitEnabled, c.RateLimitRPS, c.RateLimitBurst)
 	// Выводим настройки в лог
 	logger.Log.Info(b.String())
 }
@@ -170,6 +180,15 @@ func InitConfigServer() (*ConfigServer, error) {
 	}
 	if cfg.RefreshTokenTTLHours < 1 || cfg.RefreshTokenTTLHours > 8760 {
 		errs = append(errs, errors.New("refresh_token_ttl_hours must be between 1 and 8760"))
+	}
+
+	if cfg.RateLimitEnabled {
+		if cfg.RateLimitRPS <= 0 {
+			errs = append(errs, errors.New("rate_limit_rps must be positive when rate limiting is enabled"))
+		}
+		if cfg.RateLimitBurst < 1 {
+			errs = append(errs, errors.New("rate_limit_burst must be at least 1 when rate limiting is enabled"))
+		}
 	}
 
 	return &cfg, errors.Join(errs...)
@@ -286,6 +305,23 @@ func applyEnvToConfigServer(config *ConfigServer, skipConfigFromEnv bool) (*Conf
 	}
 	if rabbitMQVHost, present := os.LookupEnv("RABBITMQ_VHOST"); present {
 		config.RabbitMQVHost = rabbitMQVHost
+	}
+
+	if v, present := os.LookupEnv("CORS_ALLOWED_ORIGINS"); present {
+		config.CORSAllowedOrigins = strings.TrimSpace(v)
+	}
+	if v, present := os.LookupEnv("RATE_LIMIT_ENABLED"); present {
+		config.RateLimitEnabled, _ = strconv.ParseBool(v)
+	}
+	if v, present := os.LookupEnv("RATE_LIMIT_RPS"); present {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			config.RateLimitRPS = f
+		}
+	}
+	if v, present := os.LookupEnv("RATE_LIMIT_BURST"); present {
+		if n, err := strconv.Atoi(v); err == nil {
+			config.RateLimitBurst = n
+		}
 	}
 
 	if !skipConfigFromEnv {
@@ -406,6 +442,10 @@ func defaultConfigServer() ConfigServer {
 		RabbitMQUser:          getDefaultRabbitMQUser(),
 		RabbitMQPassword:      getDefaultRabbitMQPassword(),
 		RabbitMQVHost:         getDefaultRabbitMQVHost(),
+		CORSAllowedOrigins:     "*",
+		RateLimitEnabled:       true,
+		RateLimitRPS:           30,
+		RateLimitBurst:         60,
 	}
 }
 

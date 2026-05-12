@@ -9,6 +9,8 @@ import (
 	"github.com/minio/minio-go/v7"
 )
 
+const avatarJobsQueueName = "gophprofile.avatars"
+
 // HealthService интерфейс для проверки доступности сервисов
 type HealthService interface {
 	CheckDatabaseStatus(ctx context.Context) error
@@ -17,9 +19,10 @@ type HealthService interface {
 	CheckWorkerStatus(ctx context.Context) error
 }
 
-// RabbitMQHealthConn минимальный контракт для проверки RabbitMQ в /health.
+// RabbitMQHealthConn проверка RabbitMQ и очереди воркера для /health.
 type RabbitMQHealthConn interface {
 	IsClosed() bool
+	QueueConsumerCount(queueName string) (int, error)
 }
 
 // healthService реализация HealthService
@@ -30,7 +33,7 @@ type healthService struct {
 	rabbitMQ    RabbitMQHealthConn
 }
 
-// NewHealthService инициализация HealthService. rabbitMQ может быть nil — проверка RabbitMQ в /health пропускается.
+// NewHealthService инициализация HealthService. rabbitMQ может быть nil — проверки брокера/воркера пропускаются.
 func NewHealthService(repo repository.GophProfileRepository, cfg *config.ConfigServer, minioClient *minio.Client, rabbitMQ RabbitMQHealthConn) HealthService {
 	return &healthService{
 		repo:        repo,
@@ -72,7 +75,21 @@ func (s *healthService) CheckRabbitMQStatus(ctx context.Context) error {
 	return nil
 }
 
-// CheckWorkerStatus проверяет доступность воркера
+// CheckWorkerStatus проверяет, что к очереди заданий подключён хотя бы один consumer (воркер).
 func (s *healthService) CheckWorkerStatus(ctx context.Context) error {
+	_ = ctx
+	if s.rabbitMQ == nil {
+		return nil
+	}
+	if s.rabbitMQ.IsClosed() {
+		return fmt.Errorf("rabbitmq connection closed")
+	}
+	n, err := s.rabbitMQ.QueueConsumerCount(avatarJobsQueueName)
+	if err != nil {
+		return fmt.Errorf("queue %s: %w", avatarJobsQueueName, err)
+	}
+	if n < 1 {
+		return fmt.Errorf("no consumers on queue %s", avatarJobsQueueName)
+	}
 	return nil
 }

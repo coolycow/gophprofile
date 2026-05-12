@@ -55,6 +55,6 @@ func GetAvatarByUserIDHandler(srv service.AvatarService) gin.HandlerFunc {
 		}
 
 		// Отдаём аватарку из хранилища
-		streamAvatarFromStorage(c, srv, avatar)
+		streamAvatarResponse(c, srv, avatar)
 	}
 }

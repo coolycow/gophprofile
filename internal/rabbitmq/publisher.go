@@ -3,12 +3,14 @@ package rabbitmq
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 
+	"github.com/google/uuid"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-// AvatarJobPublisher отправляет задания в очередь обработки аватаров.
+// AvatarJobPublisher отправляет задания в exchange avatars.exchange (topic).
 type AvatarJobPublisher struct {
 	mu sync.Mutex
 	ch *amqp.Channel
@@ -19,25 +21,32 @@ func NewAvatarJobPublisher(ch *amqp.Channel) *AvatarJobPublisher {
 	return &AvatarJobPublisher{ch: ch}
 }
 
-// publishJob публикует задание в очередь
+// publishJob публикует задание в exchange с routing key и уникальным MessageId.
 func (p *AvatarJobPublisher) publishJob(ctx context.Context, msg AvatarJobMessage) error {
-	// Проверка на валидность сообщения
+	// Проверяем, согласованы ли тип задания и поля
 	if err := msg.Validate(); err != nil {
 		return err
 	}
 
-	// Сериализация тела сообщения
+	// Сериализуем тело сообщения
 	body, err := json.Marshal(msg)
 	if err != nil {
 		return err
 	}
 
-	// Публикация сообщения в очередь
+	// Получаем routing key для задания
+	rk := RoutingKeyForJob(&msg)
+	if rk == "" {
+		return fmt.Errorf("rabbitmq: empty routing key for job type %q", msg.Type)
+	}
+
+	// Публикуем задание в exchange с routing key и уникальным MessageId.
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.ch.PublishWithContext(ctx, "", QueueAvatarJobs, false, false, amqp.Publishing{
+	return p.ch.PublishWithContext(ctx, ExchangeAvatars, rk, false, false, amqp.Publishing{
 		ContentType:  "application/json",
 		DeliveryMode: amqp.Persistent,
+		MessageId:    uuid.NewString(),
 		Body:         body,
 	})
 }

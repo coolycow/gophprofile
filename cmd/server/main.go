@@ -109,18 +109,20 @@ func main() {
 	}
 	defer ch.Close()
 
-	// Объявление очереди
-	queue, err := rabbitmq.EnsureAvatarJobsQueue(ch)
+	// Объявление exchange, очереди и привязок (topic)
+	queue, err := rabbitmq.EnsureAvatarsTopology(ch)
 	if err != nil {
-		logger.Log.Fatal("Failed to declare avatar jobs queue", zap.Error(err))
+		logger.Log.Fatal("Failed to declare RabbitMQ topology", zap.Error(err))
 	}
-	logger.Log.Info("Declared queue successfully", zap.String("queue", queue.Name))
+	logger.Log.Info("Declared RabbitMQ topology", zap.String("queue", queue.Name))
 
 	// Создание издателя заданий
 	avatarJobPublisher := rabbitmq.NewAvatarJobPublisher(ch)
 
+	rabbitHealth := rabbitmq.NewHealthConn(rabbitConn)
+
 	// Инициализируем роутер
-	r := router.NewRouter(cfg, repo, auditNotifier, minioClient, avatarJobPublisher, rabbitConn)
+	r := router.NewRouter(cfg, repo, auditNotifier, minioClient, avatarJobPublisher, rabbitHealth)
 
 	// Получаем адрес сервера из настроек и запускаем сервер
 	serverAddress := cfg.GetServerAddress()
