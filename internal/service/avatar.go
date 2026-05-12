@@ -26,7 +26,7 @@ import (
 // AvatarJobPublisher асинхронно ставит задание на обработку аватара в RabbitMQ.
 type AvatarJobPublisher interface {
 	PublishAvatarProcessingJob(ctx context.Context, avatarID string) error
-	PublishAvatarDeletionByS3KeyJob(ctx context.Context, s3Key string) error
+	PublishAvatarDeletionByS3KeyJob(ctx context.Context, s3Key string, thumbnailS3Keys []string) error
 }
 
 // AvatarService Сервис для работы с аватарами
@@ -150,7 +150,7 @@ func (s *avatarService) UploadAvatar(ctx context.Context, userID string, file *m
 	if err != nil {
 		// Отправляем задание на удаление загруженного файла из S3
 		if s.jobPublisher != nil && info.Key != "" {
-			if pubErr := s.jobPublisher.PublishAvatarDeletionByS3KeyJob(ctx, info.Key); pubErr != nil {
+			if pubErr := s.jobPublisher.PublishAvatarDeletionByS3KeyJob(ctx, info.Key, nil); pubErr != nil {
 				return nil, profileError.CustomError{
 					Message:    fmt.Sprintf("failed to enqueue new avatar deletion: %s", pubErr),
 					StatusCode: http.StatusInternalServerError,
@@ -165,7 +165,7 @@ func (s *avatarService) UploadAvatar(ctx context.Context, userID string, file *m
 		// Старая аватарка уже снята с записи в БД внутри UploadAvatar; ставим задачу на очистку S3 и т.п.
 		if currentAvatar != nil && currentAvatar.S3Key != avatar.S3Key {
 			logger.Log.Info("Enqueuing old avatar deletion", zap.String("s3_key", currentAvatar.S3Key))
-			if pubErr := s.jobPublisher.PublishAvatarDeletionByS3KeyJob(ctx, currentAvatar.S3Key); pubErr != nil {
+			if pubErr := s.jobPublisher.PublishAvatarDeletionByS3KeyJob(ctx, currentAvatar.S3Key, []string(currentAvatar.ThumbnailS3Keys)); pubErr != nil {
 				return nil, profileError.CustomError{
 					Message:    fmt.Sprintf("failed to enqueue old avatar deletion: %s", pubErr),
 					StatusCode: http.StatusInternalServerError,
@@ -237,7 +237,7 @@ func (s *avatarService) DeleteAvatarByID(ctx context.Context, callerUserID, avat
 
 	// Если publisher не nil, отправляем задание на удаление аватарки из хранилища
 	if s.jobPublisher != nil {
-		if pubErr := s.jobPublisher.PublishAvatarDeletionByS3KeyJob(ctx, avatar.S3Key); pubErr != nil {
+		if pubErr := s.jobPublisher.PublishAvatarDeletionByS3KeyJob(ctx, avatar.S3Key, []string(avatar.ThumbnailS3Keys)); pubErr != nil {
 			return profileError.CustomError{
 				Message:    fmt.Sprintf("failed to enqueue avatar deletion: %s", pubErr),
 				StatusCode: http.StatusInternalServerError,
@@ -282,7 +282,7 @@ func (s *avatarService) DeleteAvatarByUserID(ctx context.Context, callerUserID, 
 
 	// Если publisher не nil, отправляем задание на удаление аватарки из хранилища
 	if s.jobPublisher != nil {
-		if pubErr := s.jobPublisher.PublishAvatarDeletionByS3KeyJob(ctx, avatar.S3Key); pubErr != nil {
+		if pubErr := s.jobPublisher.PublishAvatarDeletionByS3KeyJob(ctx, avatar.S3Key, []string(avatar.ThumbnailS3Keys)); pubErr != nil {
 			return profileError.CustomError{
 				Message:    fmt.Sprintf("failed to enqueue avatar deletion: %s", pubErr),
 				StatusCode: http.StatusInternalServerError,

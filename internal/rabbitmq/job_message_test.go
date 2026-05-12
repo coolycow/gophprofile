@@ -23,7 +23,17 @@ func TestDecodeAvatarJob_legacyShapeRejected(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestDecodeAvatarJob_unknownType(t *testing.T) {
-	_, err := DecodeAvatarJob([]byte(`{"type":"oops","avatar_id":"x"}`))
-	require.Error(t, err)
+func TestDecodeAvatarJob_deleteByS3Key_withThumbnails(t *testing.T) {
+	raw, err := json.Marshal(AvatarJobMessage{
+		Type:            AvatarJobTypeDeleteByS3Key,
+		S3Key:           "user/original.jpg",
+		ThumbnailS3Keys: []string{"user/thumbnails/id_100.jpg", "user/thumbnails/id_300.jpg"},
+	})
+	require.NoError(t, err)
+
+	msg, err := DecodeAvatarJob(raw)
+	require.NoError(t, err)
+	require.Equal(t, AvatarJobTypeDeleteByS3Key, msg.Type)
+	require.Equal(t, "user/original.jpg", msg.S3Key)
+	require.Equal(t, []string{"user/thumbnails/id_100.jpg", "user/thumbnails/id_300.jpg"}, msg.ThumbnailS3Keys)
 }

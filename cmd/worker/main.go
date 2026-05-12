@@ -162,6 +162,7 @@ func runConsumer(ctx context.Context, msgs <-chan amqp.Delivery, workerService s
 				zap.String("avatar_id", job.AvatarID),
 				zap.String("user_id", job.UserID),
 				zap.String("s3_key", job.S3Key),
+				zap.Strings("thumbnail_s3_keys", job.ThumbnailS3Keys),
 			)
 
 			// Обрабатываем задание
@@ -169,7 +170,7 @@ func runConsumer(ctx context.Context, msgs <-chan amqp.Delivery, workerService s
 			case rabbitmq.AvatarJobTypeProcess:
 				err = workerService.ProcessAvatar(ctx, job.AvatarID)
 			case rabbitmq.AvatarJobTypeDeleteByS3Key:
-				err = workerService.DeleteAvatarByS3Key(ctx, job.S3Key)
+				err = workerService.DeleteAvatarByS3Key(ctx, job.S3Key, job.ThumbnailS3Keys)
 			default:
 				err = fmt.Errorf("unsupported job type: %s", job.Type)
 			}

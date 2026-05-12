@@ -17,10 +17,11 @@ const (
 
 // AvatarJobMessage единый формат сообщения в очереди gophprofile.avatars.
 type AvatarJobMessage struct {
-	Type     AvatarJobType `json:"type"`
-	AvatarID string        `json:"avatar_id,omitempty"`
-	UserID   string        `json:"user_id,omitempty"`
-	S3Key    string        `json:"s3_key,omitempty"`
+	Type             AvatarJobType `json:"type"`
+	AvatarID         string        `json:"avatar_id,omitempty"`
+	UserID           string        `json:"user_id,omitempty"`
+	S3Key            string        `json:"s3_key,omitempty"`
+	ThumbnailS3Keys  []string      `json:"thumbnail_s3_keys,omitempty"`
 }
 
 // Validate проверяет согласованность type и полей.

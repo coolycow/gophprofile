@@ -32,7 +32,7 @@ const (
 // WorkerService операции воркера по сообщениям из очереди.
 type WorkerService interface {
 	ProcessAvatar(ctx context.Context, avatarID string) error
-	DeleteAvatarByS3Key(ctx context.Context, s3Key string) error
+	DeleteAvatarByS3Key(ctx context.Context, s3Key string, thumbnailS3Keys []string) error
 }
 
 // Реализация сервисного слоя
@@ -216,13 +216,41 @@ func (s *workerService) removeMinioKeys(ctx context.Context, keys []string) {
 	}
 }
 
-// DeleteAvatarByS3Key удаляет аватарку из S3 по ключу
-func (s *workerService) DeleteAvatarByS3Key(ctx context.Context, s3Key string) error {
-	err := s.minioClient.RemoveObject(ctx, s.cfg.MinioBucketName, s3Key, minio.RemoveObjectOptions{})
+// mergeS3DeletionKeys объединяет ключ оригинала и миниатюр без дубликатов и пустых строк (оригинал первым).
+func mergeS3DeletionKeys(main string, thumbnails []string) []string {
+	seen := make(map[string]struct{})
+	var out []string
+	add := func(k string) {
+		k = strings.TrimSpace(k)
+		if k == "" {
+			return
+		}
+		if _, ok := seen[k]; ok {
+			return
+		}
+		seen[k] = struct{}{}
+		out = append(out, k)
+	}
+	add(main)
+	for _, t := range thumbnails {
+		add(t)
+	}
+	return out
+}
 
-	if err != nil {
-		return err
+// DeleteAvatarByS3Key удаляет из S3 оригинал и все переданные миниатюры.
+func (s *workerService) DeleteAvatarByS3Key(ctx context.Context, s3Key string, thumbnailS3Keys []string) error {
+	// Объединяем ключи оригинального аватара и миниатюр без дубликатов и пустых строк (оригинал первым)
+	keys := mergeS3DeletionKeys(s3Key, thumbnailS3Keys)
+	var firstErr error
+
+	// Удаляем оригинал и все миниатюры
+	for _, k := range keys {
+		err := s.minioClient.RemoveObject(ctx, s.cfg.MinioBucketName, k, minio.RemoveObjectOptions{})
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
 	}
 
-	return nil
+	return firstErr
 }

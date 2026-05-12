@@ -50,10 +50,11 @@ func (p *AvatarJobPublisher) PublishAvatarProcessingJob(ctx context.Context, ava
 	})
 }
 
-// PublishAvatarDeletionByS3KeyJob ставит задание на очистку S3 по ключу.
-func (p *AvatarJobPublisher) PublishAvatarDeletionByS3KeyJob(ctx context.Context, s3Key string) error {
+// PublishAvatarDeletionByS3KeyJob ставит задание на очистку S3: оригинал и миниатюры.
+func (p *AvatarJobPublisher) PublishAvatarDeletionByS3KeyJob(ctx context.Context, s3Key string, thumbnailS3Keys []string) error {
 	return p.publishJob(ctx, AvatarJobMessage{
-		Type:  AvatarJobTypeDeleteByS3Key,
-		S3Key: s3Key,
+		Type:            AvatarJobTypeDeleteByS3Key,
+		S3Key:           s3Key,
+		ThumbnailS3Keys: thumbnailS3Keys,
 	})
 }
