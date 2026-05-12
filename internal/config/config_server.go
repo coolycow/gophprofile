@@ -39,6 +39,8 @@ type ConfigServer struct {
 	MinioSecretKey  string `env:"MINIO_SECRET_KEY" json:"minio_secret_key,omitempty"`   // Secret Key MinIO
 	MinioBucketName string `env:"MINIO_BUCKET_NAME" json:"minio_bucket_name,omitempty"` // Имя бакета MinIO
 	MinioUseSSL     bool   `env:"MINIO_USE_SSL" json:"minio_use_ssl,omitempty"`         // Использовать SSL для MinIO
+	// MinioPublicBaseURL — публичный корень для ссылок на объекты (scheme+host[+prefix]); пусто — из endpoint + useSSL.
+	MinioPublicBaseURL string `env:"MINIO_PUBLIC_BASE_URL" json:"minio_public_base_url,omitempty"`
 
 	RabbitMQHost     string `env:"RABBITMQ_HOST" json:"rabbitmq_host,omitempty"`         // Хост RabbitMQ
 	RabbitMQPort     int    `env:"RABBITMQ_PORT" json:"rabbitmq_port,omitempty"`         // Порт AMQP
@@ -72,6 +74,7 @@ type fileConfigServer struct {
 	MinioSecretKey        *string `json:"minio_secret_key"`         // Secret Key MinIO
 	MinioBucketName       *string `json:"minio_bucket_name"`        // Имя бакета MinIO
 	MinioUseSSL           *bool   `json:"minio_use_ssl"`            // Использовать SSL для MinIO
+	MinioPublicBaseURL    *string `json:"minio_public_base_url"`    // Публичный корень URL для объектов MinIO
 	RabbitMQHost          *string `json:"rabbitmq_host"`            // Хост RabbitMQ
 	RabbitMQPort          *int    `json:"rabbitmq_port"`            // Порт AMQP
 	RabbitMQUser          *string `json:"rabbitmq_user"`            // Пользователь RabbitMQ
@@ -97,7 +100,7 @@ func (c *ConfigServer) PrintServerConfig() {
 	fmt.Fprintf(&b, "AccessTokenTTLMinutes=%d RefreshTokenTTLHours=%d; ", c.AccessTokenTTLMinutes, c.RefreshTokenTTLHours)
 	fmt.Fprintf(&b, "AuditFile=%s AuditURL=%s; ", c.AuditFile, c.AuditURL)
 	fmt.Fprintf(&b, "MaxFileSize=%d; ", c.MaxFileSize)
-	fmt.Fprintf(&b, "MinioEndpoint=%s MinioAccessKey=%s MinioSecretKey=%s MinioBucketName=%s MinioUseSSL=%t; ", c.MinioEndpoint, c.MinioAccessKey, c.MinioSecretKey, c.MinioBucketName, c.MinioUseSSL)
+	fmt.Fprintf(&b, "MinioEndpoint=%s MinioAccessKey=%s MinioSecretKey=%s MinioBucketName=%s MinioUseSSL=%t MinioPublicBaseURL=%s; ", c.MinioEndpoint, c.MinioAccessKey, c.MinioSecretKey, c.MinioBucketName, c.MinioUseSSL, c.MinioPublicBaseURL)
 	fmt.Fprintf(&b, "RabbitMQHost=%s RabbitMQPort=%d RabbitMQUser=%s RabbitMQPassword=%s RabbitMQVHost=%s; ", c.RabbitMQHost, c.RabbitMQPort, c.RabbitMQUser, c.RabbitMQPassword, c.RabbitMQVHost)
 	// Выводим настройки в лог
 	logger.Log.Info(b.String())
@@ -265,6 +268,9 @@ func applyEnvToConfigServer(config *ConfigServer, skipConfigFromEnv bool) (*Conf
 	if minioUseSSL, present := os.LookupEnv("MINIO_USE_SSL"); present {
 		config.MinioUseSSL, _ = strconv.ParseBool(minioUseSSL)
 	}
+	if minioPublicBaseURL, present := os.LookupEnv("MINIO_PUBLIC_BASE_URL"); present {
+		config.MinioPublicBaseURL = minioPublicBaseURL
+	}
 
 	if rabbitMQHost, present := os.LookupEnv("RABBITMQ_HOST"); present {
 		config.RabbitMQHost = rabbitMQHost
@@ -350,6 +356,7 @@ func parseServerFlags(args []string) (*ConfigServer, *flag.FlagSet, error) {
 	flagSet.StringVar(&config.MinioSecretKey, "minio-secret-key", "", "MinIO secret key")
 	flagSet.StringVar(&config.MinioBucketName, "minio-bucket-name", "", "MinIO bucket name")
 	flagSet.BoolVar(&config.MinioUseSSL, "minio-use-ssl", false, "Use SSL for MinIO")
+	flagSet.StringVar(&config.MinioPublicBaseURL, "minio-public-base-url", "", "Public base URL for MinIO objects (optional)")
 
 	// Флаги для RabbitMQ
 	flagSet.StringVar(&config.RabbitMQHost, "rabbitmq-host", getDefaultRabbitMQHost(), "RabbitMQ host")
@@ -393,6 +400,7 @@ func defaultConfigServer() ConfigServer {
 		MinioSecretKey:        "",
 		MinioBucketName:       "",
 		MinioUseSSL:           false,
+		MinioPublicBaseURL:    "",
 		RabbitMQHost:          getDefaultRabbitMQHost(),
 		RabbitMQPort:          getDefaultRabbitMQPort(),
 		RabbitMQUser:          getDefaultRabbitMQUser(),
@@ -482,6 +490,9 @@ func mergeConfigServerFromFile(cfg *ConfigServer, path string) error {
 	}
 	if fc.MinioUseSSL != nil {
 		cfg.MinioUseSSL = *fc.MinioUseSSL
+	}
+	if fc.MinioPublicBaseURL != nil {
+		cfg.MinioPublicBaseURL = *fc.MinioPublicBaseURL
 	}
 	if fc.RabbitMQHost != nil {
 		cfg.RabbitMQHost = *fc.RabbitMQHost
@@ -575,6 +586,9 @@ func applyExplicitServerFlags(dst *ConfigServer, src *ConfigServer, fs *flag.Fla
 	}
 	if fs.Changed("minio-use-ssl") {
 		dst.MinioUseSSL = src.MinioUseSSL
+	}
+	if fs.Changed("minio-public-base-url") {
+		dst.MinioPublicBaseURL = src.MinioPublicBaseURL
 	}
 	if fs.Changed("rabbitmq-host") {
 		dst.RabbitMQHost = src.RabbitMQHost

@@ -32,10 +32,11 @@ type GophProfileRepository interface {
 	////////////////////////////////////////////////////////////// МЕТОДЫ ДЛЯ РАБОТЫ С АВАТАРАМИ //////////////////////////////////////////////////////////////
 	UploadAvatar(ctx context.Context, userID string, fileName string, mimeType string, sizeBytes int64,
 		s3Key string, thumbnailS3Keys string, uploadStatus string, processingStatus string, currentAvatarID string) (*model.Avatar, error) // загружает аватарку
-	GetAvatarByID(ctx context.Context, avatarID string) (*model.Avatar, error)   // получает аватарку по ID
-	GetAvatarByUserID(ctx context.Context, userID string) (*model.Avatar, error) // получает аватарку по ID пользователя
-	DeleteAvatarByS3Key(ctx context.Context, s3Key string) error                 // удаляет аватарку по ключу
-	DeleteAvatarByID(ctx context.Context, avatarID string) error                 // удаляет аватарку по ID
-	DeleteAvatarByUserID(ctx context.Context, userID string) error               // удаляет аватарку по ID пользователя
-	GetUserAvatars(ctx context.Context, userID string) ([]*model.Avatar, error)  // получает список аватарок пользователя
+	GetAvatarByID(ctx context.Context, avatarID string) (*model.Avatar, error)                                                                               // получает аватарку по ID
+	GetAvatarByUserID(ctx context.Context, userID string) (*model.Avatar, error)                                                                             // получает аватарку по ID пользователя
+	DeleteAvatarByS3Key(ctx context.Context, s3Key string) error                                                                                             // удаляет аватарку по ключу
+	DeleteAvatarByID(ctx context.Context, avatarID string) error                                                                                             // удаляет аватарку по ID
+	DeleteAvatarByUserID(ctx context.Context, userID string) error                                                                                           // удаляет аватарку по ID пользователя
+	GetUserAvatars(ctx context.Context, userID string) ([]*model.Avatar, error)                                                                              // получает список аватарок пользователя
+	UpdateAvatarThumbnails(ctx context.Context, avatarID string, thumbnailS3Keys []string, processingStatus string, dimensions *model.ImageDimensions) error // миниатюры (ключи S3), статус и размеры оригинала
 }

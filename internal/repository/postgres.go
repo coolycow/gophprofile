@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -307,6 +308,22 @@ func (r *PostgresRepository) FindValidRefreshTokenByHash(ctx context.Context, to
 
 ////////////////////////////////////////////////////////////// МЕТОДЫ ДЛЯ РАБОТЫ С АВАТАРАМИ //////////////////////////////////////////////////////////////
 
+// assignAvatarDimensions назначает размеры аватарки из JSON
+func assignAvatarDimensions(a *model.Avatar, raw []byte) {
+	if len(raw) == 0 || string(raw) == "null" {
+		a.Dimensions = nil
+		return
+	}
+
+	// Десериализуем размеры аватарки из JSON
+	var d model.ImageDimensions
+	if err := json.Unmarshal(raw, &d); err != nil {
+		a.Dimensions = nil
+		return
+	}
+	a.Dimensions = &d
+}
+
 // UploadAvatar загружает аватарку (если есть текущая аватарка, то мягко удаляет её)
 func (r *PostgresRepository) UploadAvatar(ctx context.Context, userID string, fileName string, mimeType string, sizeBytes int64,
 	s3Key string, thumbnailS3Keys string, uploadStatus string, processingStatus string, currentAvatarID string) (*model.Avatar, error) {
@@ -329,14 +346,16 @@ func (r *PostgresRepository) UploadAvatar(ctx context.Context, userID string, fi
 	row := tx.QueryRowContext(ctx, `insert into avatars (user_id, file_name, mime_type, size_bytes, 
 	s3_key, thumbnail_s3_keys, upload_status, processing_status)
 	values ($1, $2, $3, $4, $5, $6, $7, $8) 
-	returning id, user_id, file_name, mime_type, size_bytes, s3_key, thumbnail_s3_keys, upload_status, processing_status, created_at, updated_at, deleted_at`,
+	returning id, user_id, file_name, mime_type, size_bytes, s3_key, thumbnail_s3_keys, dimensions, upload_status, processing_status, created_at, updated_at, deleted_at`,
 		userID, fileName, mimeType, sizeBytes, s3Key, thumbnailS3Keys, uploadStatus, processingStatus)
 
 	// Сканируем результат
 	var a model.Avatar
+	var dimRaw []byte
 	err = row.Scan(&a.ID, &a.UserID, &a.FileName, &a.MimeType, &a.SizeBytes,
-		&a.S3Key, &a.ThumbnailS3Keys, &a.UploadStatus, &a.ProcessingStatus,
+		&a.S3Key, &a.ThumbnailS3Keys, &dimRaw, &a.UploadStatus, &a.ProcessingStatus,
 		&a.CreatedAt, &a.UpdatedAt, &a.DeletedAt)
+	assignAvatarDimensions(&a, dimRaw)
 
 	// Если ошибка, откатываем транзакцию
 	if err != nil {
@@ -356,13 +375,15 @@ func (r *PostgresRepository) UploadAvatar(ctx context.Context, userID string, fi
 // GetAvatarByID получает аватарку по ID (только не удаленные)
 func (r *PostgresRepository) GetAvatarByID(ctx context.Context, avatarID string) (*model.Avatar, error) {
 	row := r.db.QueryRowContext(ctx, `select id, user_id, file_name, mime_type, size_bytes, 
-	s3_key, thumbnail_s3_keys, upload_status, processing_status, 
+	s3_key, thumbnail_s3_keys, dimensions, upload_status, processing_status, 
 	created_at, updated_at, deleted_at from avatars where id = $1 and deleted_at is null`, avatarID)
 
 	var a model.Avatar
+	var dimRaw []byte
 	err := row.Scan(&a.ID, &a.UserID, &a.FileName, &a.MimeType, &a.SizeBytes,
-		&a.S3Key, &a.ThumbnailS3Keys, &a.UploadStatus, &a.ProcessingStatus,
+		&a.S3Key, &a.ThumbnailS3Keys, &dimRaw, &a.UploadStatus, &a.ProcessingStatus,
 		&a.CreatedAt, &a.UpdatedAt, &a.DeletedAt)
+	assignAvatarDimensions(&a, dimRaw)
 
 	if err != nil {
 		return nil, err
@@ -374,13 +395,15 @@ func (r *PostgresRepository) GetAvatarByID(ctx context.Context, avatarID string)
 // GetAvatarByUserID получает аватарку по ID пользователя (только не удаленные)
 func (r *PostgresRepository) GetAvatarByUserID(ctx context.Context, userID string) (*model.Avatar, error) {
 	row := r.db.QueryRowContext(ctx, `select id, user_id, file_name, mime_type, size_bytes, 
-	s3_key, thumbnail_s3_keys, upload_status, processing_status, 
+	s3_key, thumbnail_s3_keys, dimensions, upload_status, processing_status, 
 	created_at, updated_at, deleted_at from avatars where user_id = $1 and deleted_at is null`, userID)
 
 	var a model.Avatar
+	var dimRaw []byte
 	err := row.Scan(&a.ID, &a.UserID, &a.FileName, &a.MimeType, &a.SizeBytes,
-		&a.S3Key, &a.ThumbnailS3Keys, &a.UploadStatus, &a.ProcessingStatus,
+		&a.S3Key, &a.ThumbnailS3Keys, &dimRaw, &a.UploadStatus, &a.ProcessingStatus,
 		&a.CreatedAt, &a.UpdatedAt, &a.DeletedAt)
+	assignAvatarDimensions(&a, dimRaw)
 
 	if err != nil {
 		return nil, err
@@ -410,7 +433,7 @@ func (r *PostgresRepository) DeleteAvatarByUserID(ctx context.Context, userID st
 // GetUserAvatars получает список аватарок пользователя
 func (r *PostgresRepository) GetUserAvatars(ctx context.Context, userID string) ([]*model.Avatar, error) {
 	rows, err := r.db.QueryContext(ctx, `select id, user_id, file_name, mime_type, size_bytes, 
-	s3_key, thumbnail_s3_keys, upload_status, processing_status, 
+	s3_key, thumbnail_s3_keys, dimensions, upload_status, processing_status, 
 	created_at, updated_at, deleted_at from avatars where user_id = $1`, userID)
 
 	if err != nil {
@@ -422,13 +445,14 @@ func (r *PostgresRepository) GetUserAvatars(ctx context.Context, userID string) 
 	var avatars []*model.Avatar
 	for rows.Next() {
 		var a model.Avatar
+		var dimRaw []byte
 		err := rows.Scan(&a.ID, &a.UserID, &a.FileName, &a.MimeType, &a.SizeBytes,
-			&a.S3Key, &a.ThumbnailS3Keys, &a.UploadStatus, &a.ProcessingStatus,
+			&a.S3Key, &a.ThumbnailS3Keys, &dimRaw, &a.UploadStatus, &a.ProcessingStatus,
 			&a.CreatedAt, &a.UpdatedAt, &a.DeletedAt)
-
 		if err != nil {
 			return nil, err
 		}
+		assignAvatarDimensions(&a, dimRaw)
 
 		avatars = append(avatars, &a)
 	}
@@ -438,4 +462,39 @@ func (r *PostgresRepository) GetUserAvatars(ctx context.Context, userID string) 
 	}
 
 	return avatars, nil
+}
+
+// UpdateAvatarThumbnails обновляет ключи миниатюр в S3, размеры оригинала и статус постобработки.
+func (r *PostgresRepository) UpdateAvatarThumbnails(ctx context.Context, avatarID string, thumbnailS3Keys []string, processingStatus string, dimensions *model.ImageDimensions) error {
+	var keysJSON []byte
+	var err error
+
+	// Если нет ключей миниатюр, то устанавливаем пустой массив
+	if len(thumbnailS3Keys) == 0 {
+		keysJSON = []byte("[]")
+	} else {
+		// Сериализуем ключи миниатюр в JSON
+		keysJSON, err = json.Marshal(thumbnailS3Keys)
+		if err != nil {
+			return err
+		}
+	}
+
+	var dimArg interface{}
+	if dimensions != nil {
+		var b []byte
+		b, err = json.Marshal(dimensions)
+		if err != nil {
+			return err
+		}
+		dimArg = b
+	}
+
+	// Обновляем ключи миниатюр в S3 и статус постобработки
+	_, err = r.db.ExecContext(ctx, `update avatars
+		set thumbnail_s3_keys = $1::jsonb, processing_status = $2, updated_at = $3, dimensions = $4::jsonb
+		where id = $5 and deleted_at is null`,
+		keysJSON, processingStatus, time.Now(), dimArg, avatarID)
+
+	return err
 }

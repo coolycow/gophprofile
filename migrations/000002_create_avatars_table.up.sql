@@ -12,6 +12,7 @@ CREATE TABLE avatars (
     file_name VARCHAR(255) NOT NULL,
     mime_type VARCHAR(100) NOT NULL,
     size_bytes BIGINT NOT NULL,
+    dimensions JSONB,
 
     s3_key VARCHAR(500) NOT NULL,
     thumbnail_s3_keys JSONB,

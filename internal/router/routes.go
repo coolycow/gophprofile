@@ -53,7 +53,7 @@ func setupRoutes(
 
 	// Маршруты для получения аватара по ID и по ID пользователя (не требуют идентификации пользователя)
 	api.GET("/avatars/:avatar_id", handler.GetAvatarByIDHandler(avatarService))
-	api.GET("/avatars/:avatar_id/metadata", handler.GetAvatarMetadataHandler(avatarService))
+	api.GET("/avatars/:avatar_id/metadata", handler.GetAvatarMetadataHandler(avatarService, cfg))
 
 	api.GET("/users/:user_id/avatar", handler.GetAvatarByUserIDHandler(avatarService))
 	api.GET("/users/:user_id/avatars", handler.GetAvatarsByUserIDHandler(avatarService))

@@ -5,13 +5,14 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/coolycow/gophprofile/internal/config"
 	"github.com/coolycow/gophprofile/internal/error"
 	"github.com/coolycow/gophprofile/internal/service"
 	"github.com/gin-gonic/gin"
 )
 
 // GetAvatarMetadataHandler получает метаданные аватарки по ID
-func GetAvatarMetadataHandler(srv service.AvatarService) gin.HandlerFunc {
+func GetAvatarMetadataHandler(srv service.AvatarService, cfg *config.ConfigServer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Получаем ID аватара из параметров запроса
 		avatarID := c.Param("avatar_id")
@@ -54,7 +55,9 @@ func GetAvatarMetadataHandler(srv service.AvatarService) gin.HandlerFunc {
 			return
 		}
 
-		// Возвращаем метаданные аватарки
-		c.JSON(http.StatusOK, avatar.GetMetadata())
+		// Возвращаем метаданные аватарки (URL миниатюр из конфига MinIO)
+		c.JSON(http.StatusOK, avatar.BuildAvatarMetadata(func(key string) string {
+			return service.MinioObjectPublicURL(cfg, key)
+		}))
 	}
 }
