@@ -13,10 +13,15 @@ COPY . .
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 ARG GO_WORKER_MAIN_PATH=./cmd/worker
+ARG GIT_COMMIT=unknown
+ARG BUILD_DATE=unknown
+ARG BUILD_VERSION=unknown
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -trimpath -ldflags="-s -w" -o /out/worker "${GO_WORKER_MAIN_PATH}"
+    go build -trimpath \
+    -ldflags="-s -w -X main.buildVersion=${BUILD_VERSION} -X main.buildDate=${BUILD_DATE} -X main.buildCommit=${GIT_COMMIT}" \
+    -o /out/worker "${GO_WORKER_MAIN_PATH}"
 
 FROM alpine:3.21
 

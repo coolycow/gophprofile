@@ -36,6 +36,11 @@ services:
     build:
       context: .
       dockerfile: docker/server/Dockerfile
+      args:
+        # Вшиваются в бинарник на этапе go build (-ldflags -X main.*), не из runtime environment.
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+        BUILD_DATE: ${BUILD_DATE:-unknown}
+        BUILD_VERSION: ${BUILD_VERSION:-unknown}
     image: gophprofile/server:latest
     container_name: server
     ports:
@@ -74,6 +79,10 @@ services:
     build:
       context: .
       dockerfile: docker/worker/Dockerfile
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+        BUILD_DATE: ${BUILD_DATE:-unknown}
+        BUILD_VERSION: ${BUILD_VERSION:-unknown}
     image: gophprofile/worker:latest
     container_name: worker
     environment:

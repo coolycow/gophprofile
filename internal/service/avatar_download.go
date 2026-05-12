@@ -16,7 +16,7 @@ import (
 	profileError "github.com/coolycow/gophprofile/internal/error"
 	"github.com/coolycow/gophprofile/internal/model"
 	"github.com/minio/minio-go/v7"
-	_ "golang.org/x/image/webp"
+	webp "github.com/skrashevich/go-webp"
 )
 
 // AvatarDownload тело и заголовки для GET аватарки.
@@ -27,7 +27,7 @@ type AvatarDownload struct {
 	ETag          string        // ETag
 }
 
-// normalizeAvatarSizeParam нормализует параметр size
+// normalizeAvatarSizeParam: пустое значение и "original" — полный оригинал; иначе миниатюра 100x100 / 300x300.
 func normalizeAvatarSizeParam(s string) string {
 	s = strings.ToLower(strings.TrimSpace(s))
 	switch s {
@@ -92,7 +92,7 @@ func (s *avatarService) resolveThumbnailKey(ctx context.Context, a *model.Avatar
 		return candidate, nil
 	}
 	return "", profileError.CustomError{
-		Message:    "Avatar variant not found",
+		Message:    "Avatar not found",
 		Details:    "thumbnail is not ready yet",
 		StatusCode: http.StatusNotFound,
 	}
@@ -148,17 +148,26 @@ func encodeImageToFormat(img image.Image, format string) ([]byte, string, error)
 			return nil, "", err
 		}
 		return buf.Bytes(), "image/png", nil
+	case "webp":
+		var buf bytes.Buffer
+		if err := webp.Encode(&buf, img, &webp.Options{Lossy: true, Quality: 85}); err != nil {
+			return nil, "", err
+		}
+		return buf.Bytes(), "image/webp", nil
 	default:
 		return nil, "", fmt.Errorf("unsupported output format %q", format)
 	}
 }
 
-// PrepareAvatarDownload готовит поток для GET /avatars/:id (size, format — как в ТЗ).
+// PrepareAvatarDownload готовит поток для GET /avatars/:id и GET /users/:id/avatar.
+// size: не указан или original — оригинал; 100x100 / 300x300 — миниатюра.
+// format: не указан — отдача объекта из хранилища как есть; jpeg|png|webp — перекодирование.
 func (s *avatarService) PrepareAvatarDownload(ctx context.Context, avatar *model.Avatar, sizeParam, formatParam string) (*AvatarDownload, error) {
 	if avatar == nil {
 		return nil, profileError.CustomError{Message: "Avatar not found", StatusCode: http.StatusNotFound}
 	}
 
+	// Нормализуем параметр size
 	size := normalizeAvatarSizeParam(sizeParam)
 	if size == "_invalid_" {
 		return nil, profileError.CustomError{
@@ -167,6 +176,8 @@ func (s *avatarService) PrepareAvatarDownload(ctx context.Context, avatar *model
 			StatusCode: http.StatusBadRequest,
 		}
 	}
+
+	// Нормализуем параметр format
 	format := normalizeAvatarFormatParam(formatParam)
 	if format == "_invalid_" {
 		return nil, profileError.CustomError{
@@ -179,6 +190,7 @@ func (s *avatarService) PrepareAvatarDownload(ctx context.Context, avatar *model
 	var objectKey string
 	var nativeCT string
 
+	// Если size == "original", то используем оригинальный объект
 	if size == "original" {
 		objectKey = strings.TrimSpace(avatar.S3Key)
 		nativeCT = strings.TrimSpace(avatar.MimeType)
@@ -192,23 +204,14 @@ func (s *avatarService) PrepareAvatarDownload(ctx context.Context, avatar *model
 		nativeCT = "image/jpeg"
 	}
 
+	// Если объект не найден, то возвращаем ошибку
 	if objectKey == "" {
 		return nil, profileError.CustomError{Message: "Avatar not found", StatusCode: http.StatusNotFound}
 	}
 
-	// format=webp только если исходный объект уже webp (миниатюры у нас jpeg).
-	if format == "webp" {
-		if size != "original" || !strings.Contains(strings.ToLower(nativeCT), "webp") {
-			return nil, profileError.CustomError{
-				Message:    "Invalid query parameter",
-				Details:    "format webp is only supported for original image/webp",
-				StatusCode: http.StatusBadRequest,
-			}
-		}
-	}
-
-	// Без перекодирования: отдаём байты из MinIO как есть.
-	if format == "" || format == "webp" {
+	// Без format — поток из MinIO (оригинальный Content-Type / ETag объекта).
+	if format == "" {
+		// Получаем объект из MinIO
 		obj, err := s.minioClient.GetObject(ctx, s.cfg.MinioBucketName, objectKey, minio.GetObjectOptions{})
 		if err != nil {
 			if minio.ToErrorResponse(err).Code == "NoSuchKey" {
@@ -216,6 +219,8 @@ func (s *avatarService) PrepareAvatarDownload(ctx context.Context, avatar *model
 			}
 			return nil, err
 		}
+
+		// Получаем статистику объекта
 		stat, err := obj.Stat()
 		if err != nil {
 			obj.Close()
@@ -224,6 +229,8 @@ func (s *avatarService) PrepareAvatarDownload(ctx context.Context, avatar *model
 			}
 			return nil, err
 		}
+
+		// Получаем Content-Type из статистики объекта
 		ct := nativeCT
 		if strings.TrimSpace(stat.ContentType) != "" {
 			ct = strings.TrimSpace(stat.ContentType)
@@ -231,10 +238,14 @@ func (s *avatarService) PrepareAvatarDownload(ctx context.Context, avatar *model
 		if ct == "" {
 			ct = "application/octet-stream"
 		}
+
+		// Получаем ETag из статистики объекта
 		etag := strings.TrimSpace(stat.ETag)
 		if etag != "" && !strings.HasPrefix(etag, `"`) {
 			etag = `"` + strings.Trim(etag, `"`) + `"`
 		}
+
+		// Возвращаем поток для GET /avatars/:id и GET /users/:id/avatar
 		return &AvatarDownload{
 			Body:          obj,
 			ContentType:   ct,
@@ -243,7 +254,7 @@ func (s *avatarService) PrepareAvatarDownload(ctx context.Context, avatar *model
 		}, nil
 	}
 
-	// Перекодирование jpeg/png.
+	// С format — перекодирование (в т.ч. webp для миниатюр jpeg).
 	raw, _, err := s.readObjectLimited(ctx, objectKey)
 	if err != nil {
 		if minio.ToErrorResponse(err).Code == "NoSuchKey" {
@@ -251,6 +262,8 @@ func (s *avatarService) PrepareAvatarDownload(ctx context.Context, avatar *model
 		}
 		return nil, err
 	}
+
+	// Декодируем изображение
 	img, _, err := image.Decode(bytes.NewReader(raw))
 	if err != nil {
 		return nil, profileError.CustomError{
@@ -258,10 +271,14 @@ func (s *avatarService) PrepareAvatarDownload(ctx context.Context, avatar *model
 			StatusCode: http.StatusInternalServerError,
 		}
 	}
+
+	// Кодируем изображение в формат
 	out, ct, err := encodeImageToFormat(img, format)
 	if err != nil {
 		return nil, err
 	}
+
+	// Возвращаем поток для GET /avatars/:id и GET /users/:id/avatar
 	return &AvatarDownload{
 		Body:          io.NopCloser(bytes.NewReader(out)),
 		ContentType:   ct,

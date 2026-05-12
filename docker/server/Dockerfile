@@ -15,11 +15,12 @@ ARG TARGETARCH=amd64
 ARG GO_SERVER_MAIN_PATH=./cmd/server
 ARG GIT_COMMIT=unknown
 ARG BUILD_DATE=unknown
+ARG BUILD_VERSION=unknown
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath \
-    -ldflags="-s -w -X main.buildVersion=${GIT_COMMIT} -X main.buildDate=${BUILD_DATE} -X main.buildCommit=${GIT_COMMIT}" \
+    -ldflags="-s -w -X main.buildVersion=${BUILD_VERSION} -X main.buildDate=${BUILD_DATE} -X main.buildCommit=${GIT_COMMIT}" \
     -o /out/server "${GO_SERVER_MAIN_PATH}"
 
 FROM alpine:3.21

@@ -12,11 +12,12 @@ require (
 	github.com/hashicorp/go-retryablehttp v0.7.8
 	github.com/minio/minio-go/v7 v7.1.0
 	github.com/rabbitmq/amqp091-go v1.11.0
+	github.com/skrashevich/go-webp v0.1.0
 	github.com/spf13/pflag v1.0.10
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/zap v1.27.1
 	golang.org/x/crypto v0.50.0
-	golang.org/x/image v0.33.0
+	golang.org/x/image v0.36.0
 	golang.org/x/time v0.14.0
 )
 
