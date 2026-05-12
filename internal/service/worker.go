@@ -41,12 +41,7 @@ func (s *workerService) ProcessAvatar(ctx context.Context, avatarID string) erro
 // DeleteAvatarByS3Key удаляет аватарку из S3 по ключу
 func (s *workerService) DeleteAvatarByS3Key(ctx context.Context, s3Key string) error {
 	err := s.minioClient.RemoveObject(ctx, s.cfg.MinioBucketName, s3Key, minio.RemoveObjectOptions{})
-	if err != nil {
-		return err
-	}
 
-	// Удаляем аватарку из базы данных
-	err = s.repo.DeleteAvatarByS3Key(ctx, s3Key)
 	if err != nil {
 		return err
 	}

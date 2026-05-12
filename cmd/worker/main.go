@@ -161,6 +161,7 @@ func runConsumer(ctx context.Context, msgs <-chan amqp.Delivery, workerService s
 				zap.String("type", string(job.Type)),
 				zap.String("avatar_id", job.AvatarID),
 				zap.String("user_id", job.UserID),
+				zap.String("s3_key", job.S3Key),
 			)
 
 			// Обрабатываем задание

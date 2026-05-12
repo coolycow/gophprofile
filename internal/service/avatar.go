@@ -15,10 +15,12 @@ import (
 
 	"github.com/coolycow/gophprofile/internal/config"
 	profileError "github.com/coolycow/gophprofile/internal/error"
+	"github.com/coolycow/gophprofile/internal/logger"
 	"github.com/coolycow/gophprofile/internal/model"
 	"github.com/coolycow/gophprofile/internal/repository"
 	"github.com/go-playground/validator/v10"
 	"github.com/minio/minio-go/v7"
+	"go.uber.org/zap"
 )
 
 // AvatarJobPublisher асинхронно ставит задание на обработку аватара в RabbitMQ.
@@ -130,23 +132,27 @@ func (s *avatarService) UploadAvatar(ctx context.Context, userID string, file *m
 	}
 
 	// Текущая аватарка (если есть) — заменяем при новой загрузке
-	currentAvatar := &model.Avatar{}
-	if cur, err := s.repo.GetAvatarByUserID(ctx, userID); err != nil {
+	currentAvatar, err := s.repo.GetAvatarByUserID(ctx, userID)
+	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			return nil, err
 		}
-	} else if cur != nil {
-		currentAvatar = cur
+	}
+
+	// ID текущей аватарки (если есть)
+	currentAvatarID := ""
+	if currentAvatar != nil {
+		currentAvatarID = currentAvatar.ID
 	}
 
 	// Сохраняем новую аватарку в базу данных
-	avatar, err := s.repo.UploadAvatar(ctx, userID, fileHeader.Filename, contentType, info.Size, info.Key, "[]", "completed", "pending", currentAvatar.ID)
+	avatar, err := s.repo.UploadAvatar(ctx, userID, fileHeader.Filename, contentType, info.Size, info.Key, "[]", "completed", "pending", currentAvatarID)
 	if err != nil {
 		// Отправляем задание на удаление загруженного файла из S3
-		if s.jobPublisher != nil {
+		if s.jobPublisher != nil && info.Key != "" {
 			if pubErr := s.jobPublisher.PublishAvatarDeletionByS3KeyJob(ctx, info.Key); pubErr != nil {
 				return nil, profileError.CustomError{
-					Message:    fmt.Sprintf("failed to enqueue avatar deletion: %s", pubErr),
+					Message:    fmt.Sprintf("failed to enqueue new avatar deletion: %s", pubErr),
 					StatusCode: http.StatusInternalServerError,
 				}
 			}
@@ -157,10 +163,11 @@ func (s *avatarService) UploadAvatar(ctx context.Context, userID string, file *m
 	// Если publisher не nil, отправляем задание на обработку аватарки
 	if s.jobPublisher != nil {
 		// Старая аватарка уже снята с записи в БД внутри UploadAvatar; ставим задачу на очистку S3 и т.п.
-		if currentAvatar != nil {
+		if currentAvatar != nil && currentAvatar.S3Key != avatar.S3Key {
+			logger.Log.Info("Enqueuing old avatar deletion", zap.String("s3_key", currentAvatar.S3Key))
 			if pubErr := s.jobPublisher.PublishAvatarDeletionByS3KeyJob(ctx, currentAvatar.S3Key); pubErr != nil {
 				return nil, profileError.CustomError{
-					Message:    fmt.Sprintf("failed to enqueue avatar deletion: %s", pubErr),
+					Message:    fmt.Sprintf("failed to enqueue old avatar deletion: %s", pubErr),
 					StatusCode: http.StatusInternalServerError,
 				}
 			}
@@ -169,7 +176,7 @@ func (s *avatarService) UploadAvatar(ctx context.Context, userID string, file *m
 		// Отправляем задание на обработку новой аватарки
 		if pubErr := s.jobPublisher.PublishAvatarProcessingJob(ctx, avatar.ID); pubErr != nil {
 			return nil, profileError.CustomError{
-				Message:    fmt.Sprintf("failed to enqueue avatar processing: %s", pubErr),
+				Message:    fmt.Sprintf("failed to enqueue new avatar processing: %s", pubErr),
 				StatusCode: http.StatusInternalServerError,
 			}
 		}
