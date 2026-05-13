@@ -21,5 +21,5 @@ func hashPassword(password string) (string, error) {
 // validatePassword валидирует пароль с учетом конфигурации и валидатора
 func validatePassword(password string, cfg *config.ConfigServer, validator *validator.Validate) error {
 	// Валидация пароля
-	return validator.Var(password, fmt.Sprintf("required,alphanum,min=%d,max=%d", cfg.MinPasswordLength, cfg.MaxPasswordLength))
+	return validator.Var(password, fmt.Sprintf("required,printascii,min=%d,max=%d", cfg.MinPasswordLength, cfg.MaxPasswordLength))
 }

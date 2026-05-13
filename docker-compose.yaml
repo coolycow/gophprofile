@@ -63,6 +63,7 @@ services:
       - MINIO_USE_SSL=${MINIO_USE_SSL:-false}
       - AUDIT_FILE=${AUDIT_FILE:-/tmp/audit_server.json}
       - RUN_MIGRATIONS=${RUN_MIGRATIONS:-false}
+      - SECRET_KEY=${SECRET_KEY:-}
     volumes:
       - gophprofile_data:/app
     depends_on:

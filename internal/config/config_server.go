@@ -665,8 +665,9 @@ func getDefaultDatabaseDSN() string {
 }
 
 // getDefaultSecretKey секретный ключ по умолчанию
+// Дефолт должен быть пустой строкой, чтобы сервис падал со старта без явной конфигурации
 func getDefaultSecretKey() string {
-	return "phWHXBnGVl4JyzNbYRL3MSRL07pir7i6"
+	return ""
 }
 
 // getDefaultTLSCertFile файл сертификата по умолчанию
