@@ -66,6 +66,7 @@ func (c *ConfigWorker) PrintWorkerConfig() {
 	logger.Log.Info(b.String())
 }
 
+// redactSecret заменяет строку на "***"
 func redactSecret(s string) string {
 	if s == "" {
 		return ""

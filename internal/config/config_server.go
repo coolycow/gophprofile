@@ -109,8 +109,8 @@ func (c *ConfigServer) PrintServerConfig() {
 	fmt.Fprintf(&b, "AccessTokenTTLMinutes=%d RefreshTokenTTLHours=%d; ", c.AccessTokenTTLMinutes, c.RefreshTokenTTLHours)
 	fmt.Fprintf(&b, "AuditFile=%s AuditURL=%s; ", c.AuditFile, c.AuditURL)
 	fmt.Fprintf(&b, "MaxFileSize=%d; ", c.MaxFileSize)
-	fmt.Fprintf(&b, "MinioEndpoint=%s MinioAccessKey=%s MinioSecretKey=%s MinioBucketName=%s MinioUseSSL=%t MinioPublicBaseURL=%s; ", c.MinioEndpoint, c.MinioAccessKey, c.MinioSecretKey, c.MinioBucketName, c.MinioUseSSL, c.MinioPublicBaseURL)
-	fmt.Fprintf(&b, "RabbitMQHost=%s RabbitMQPort=%d RabbitMQUser=%s RabbitMQPassword=%s RabbitMQVHost=%s; ", c.RabbitMQHost, c.RabbitMQPort, c.RabbitMQUser, c.RabbitMQPassword, c.RabbitMQVHost)
+	fmt.Fprintf(&b, "MinioEndpoint=%s MinioAccessKey=%s MinioSecretKey=%s MinioBucketName=%s MinioUseSSL=%t MinioPublicBaseURL=%s; ", c.MinioEndpoint, c.MinioAccessKey, redactSecret(c.MinioSecretKey), c.MinioBucketName, c.MinioUseSSL, c.MinioPublicBaseURL)
+	fmt.Fprintf(&b, "RabbitMQHost=%s RabbitMQPort=%d RabbitMQUser=%s RabbitMQPassword=%s RabbitMQVHost=%s; ", c.RabbitMQHost, c.RabbitMQPort, c.RabbitMQUser, redactSecret(c.RabbitMQPassword), c.RabbitMQVHost)
 	fmt.Fprintf(&b, "CORSAllowedOrigins=%s RateLimitEnabled=%t RateLimitRPS=%.2f RateLimitBurst=%d; ", c.CORSAllowedOrigins, c.RateLimitEnabled, c.RateLimitRPS, c.RateLimitBurst)
 	// Выводим настройки в лог
 	logger.Log.Info(b.String())
@@ -442,10 +442,10 @@ func defaultConfigServer() ConfigServer {
 		RabbitMQUser:          getDefaultRabbitMQUser(),
 		RabbitMQPassword:      getDefaultRabbitMQPassword(),
 		RabbitMQVHost:         getDefaultRabbitMQVHost(),
-		CORSAllowedOrigins:     "*",
-		RateLimitEnabled:       true,
-		RateLimitRPS:           30,
-		RateLimitBurst:         60,
+		CORSAllowedOrigins:    "*",
+		RateLimitEnabled:      true,
+		RateLimitRPS:          30,
+		RateLimitBurst:        60,
 	}
 }
 

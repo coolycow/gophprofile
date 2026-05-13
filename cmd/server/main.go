@@ -72,7 +72,6 @@ func main() {
 			log.Fatalf("Failed to run migrations: %v", err)
 		}
 		logger.Log.Info("Run migrations succeeded")
-		return
 	}
 
 	// В конце работы приложения необходимо правильно закрыть хранилище.

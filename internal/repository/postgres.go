@@ -135,21 +135,6 @@ func NewPostgresRepository(DSN string) (*PostgresRepository, error) {
 
 	repo := &PostgresRepository{db: db}
 
-	// Проверяем, существует ли таблица users
-	tableExists, err := repo.checkTableExists("users")
-	if err != nil {
-		return nil, err
-	}
-
-	// Если таблица users не существует, выполняем миграции, т.к. это явно первый запуск приложения на сервере
-	if !tableExists {
-		err = repo.RunMigrations()
-
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	return repo, nil
 }
 
