@@ -30,6 +30,10 @@ RUN apk add --no-cache ca-certificates tzdata \
 
 COPY --from=builder /out/worker /usr/local/bin/worker
 
+# Как в server: в runtime-образе нет go.mod; без MIGRATIONS_PATH findMigrationsDir() падает.
+COPY migrations /usr/local/share/gophprofile/migrations
+ENV MIGRATIONS_PATH=/usr/local/share/gophprofile/migrations
+
 WORKDIR /app
 
 USER appuser
