@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gophprofile — аватары и API</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          animation: {
+            'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+          }
+        }
+      }
+    }
+  </script>
+</head>
+
+<body class="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+  <div class="container mx-auto px-4 py-8 max-w-4xl">
+    <div class="bg-white/10 backdrop-blur-lg rounded-2xl shadow-2xl border border-white/20 overflow-hidden">
+      <header class="bg-gradient-to-r from-purple-600 to-blue-600 p-6">
+        <h1 class="text-3xl font-bold text-white text-center">Gophprofile</h1>
+        <p class="text-white/80 text-center mt-2">Загрузка, просмотр и удаление аватаров (все эндпоинты из API)</p>
+      </header>
+
+      <main class="p-6 space-y-8 text-white">
+        <!-- Health -->
+        <section class="space-y-3">
+          <h2 class="text-lg font-semibold border-b border-white/20 pb-2">GET /health</h2>
+          <button type="button" id="healthBtn"
+            class="bg-white/15 hover:bg-white/25 border border-white/25 px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+            Проверить состояние сервиса
+          </button>
+        </section>
+
+        <!-- Auth -->
+        <section class="space-y-3">
+          <h2 class="text-lg font-semibold border-b border-white/20 pb-2">Авторизация</h2>
+          <div class="grid gap-4 md:grid-cols-3">
+            <div class="bg-black/20 rounded-xl p-4 space-y-2">
+              <h3 class="text-sm font-medium text-white/90">POST /api/v1/auth/register</h3>
+              <input type="email" id="regEmail" placeholder="email"
+                class="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-sm placeholder-white/40 focus:ring-2 focus:ring-purple-500 outline-none">
+              <input type="password" id="regPassword" placeholder="пароль"
+                class="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-sm placeholder-white/40 focus:ring-2 focus:ring-purple-500 outline-none">
+              <button type="button" id="registerBtn"
+                class="w-full py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-sm font-medium">Регистрация</button>
+            </div>
+            <div class="bg-black/20 rounded-xl p-4 space-y-2">
+              <h3 class="text-sm font-medium text-white/90">POST /api/v1/auth/login</h3>
+              <input type="email" id="loginEmail" placeholder="email"
+                class="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-sm placeholder-white/40 focus:ring-2 focus:ring-purple-500 outline-none">
+              <input type="password" id="loginPassword" placeholder="пароль"
+                class="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-sm placeholder-white/40 focus:ring-2 focus:ring-purple-500 outline-none">
+              <button type="button" id="loginBtn"
+                class="w-full py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-sm font-medium">Вход</button>
+            </div>
+            <div class="bg-black/20 rounded-xl p-4 space-y-2">
+              <h3 class="text-sm font-medium text-white/90">POST /api/v1/auth/refresh</h3>
+              <textarea id="refreshToken" rows="3" placeholder="refresh_token"
+                class="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-xs font-mono placeholder-white/40 focus:ring-2 focus:ring-purple-500 outline-none resize-y min-h-[4.5rem]"></textarea>
+              <button type="button" id="refreshBtn"
+                class="w-full py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-sm font-medium">Обновить токены</button>
+            </div>
+          </div>
+          <p class="text-xs text-white/60">После входа или регистрации UUID пользователя подставляется из поля <code
+              class="text-white/80">sub</code> access-токена (JWT), если удалось прочитать.</p>
+        </section>
+
+        <!-- Session user (X-User-ID) -->
+        <section class="space-y-3">
+          <h2 class="text-lg font-semibold border-b border-white/20 pb-2">Текущий пользователь (заголовок X-User-ID)</h2>
+          <p class="text-sm text-white/70">Нужен для POST/DELETE аватаров: UUID должен существовать в БД и совпадать с
+            владельцем.</p>
+          <div class="flex flex-col sm:flex-row gap-2">
+            <input type="text" id="userId" name="userId" placeholder="UUID пользователя"
+              class="flex-1 px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono text-sm">
+            <button type="button" id="fillUserFromJwtBtn"
+              class="px-4 py-3 bg-white/15 hover:bg-white/25 border border-white/25 rounded-lg text-sm whitespace-nowrap">Из
+              JWT</button>
+            <button type="button" id="clearSessionBtn"
+              class="px-4 py-3 bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg text-sm whitespace-nowrap">Сбросить
+              токены</button>
+          </div>
+        </section>
+
+        <!-- Upload -->
+        <section class="space-y-4">
+          <h2 class="text-lg font-semibold border-b border-white/20 pb-2">POST /api/v1/avatars</h2>
+          <form id="uploadForm" class="space-y-4">
+            <div>
+              <label for="file" class="block text-sm font-medium text-white mb-2">
+                Файл изображения <span class="text-red-400">*</span>
+              </label>
+              <input type="file" id="file" name="file" accept="image/*" required
+                class="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-purple-600 file:text-white hover:file:bg-purple-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all">
+              <div id="imagePreview" class="mt-4 hidden">
+                <img id="previewImg" src="" alt="Предпросмотр" class="w-32 h-32 object-cover rounded-lg shadow-lg mx-auto">
+              </div>
+            </div>
+            <button type="submit" id="submitBtn"
+              class="w-full bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold py-3 px-6 rounded-lg shadow-lg hover:from-purple-700 hover:to-blue-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 focus:ring-offset-transparent transition-all duration-200 transform hover:scale-[1.01] active:scale-[0.99]">
+              <span id="btnText">Загрузить аватар</span>
+              <span id="btnLoader" class="hidden items-center justify-center gap-2">
+                <svg class="animate-spin h-5 w-5 text-white inline" xmlns="http://www.w3.org/2000/svg" fill="none"
+                  viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                  </path>
+                </svg>
+                Загрузка…
+              </span>
+            </button>
+          </form>
+        </section>
+
+        <!-- List + manage by user -->
+        <section class="space-y-3">
+          <h2 class="text-lg font-semibold border-b border-white/20 pb-2">Просмотр списка</h2>
+          <p class="text-sm text-white/70">GET /api/v1/users/:user_id/avatars — публично, без X-User-ID. Записи с
+            <code class="text-white/85">deleted_at</code> помечены как мягко удалённые (файл в хранилище может быть уже
+            недоступен).</p>
+          <div class="flex flex-col sm:flex-row gap-2">
+            <input type="text" id="listUserId" placeholder="UUID пользователя для списка"
+              class="flex-1 px-4 py-3 bg-white/10 border border-white/20 rounded-lg font-mono text-sm placeholder-white/50 focus:ring-2 focus:ring-purple-500 outline-none">
+            <button type="button" id="loadAvatarsBtn"
+              class="px-4 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg font-medium text-sm whitespace-nowrap">Загрузить
+              список</button>
+          </div>
+          <div id="avatarsList" class="grid gap-3 sm:grid-cols-2"></div>
+          <div class="flex flex-wrap gap-2 items-center">
+            <button type="button" id="deleteUserAvatarBtn"
+              class="px-4 py-2 rounded-lg bg-red-600/80 hover:bg-red-600 text-sm font-medium border border-red-400/40">
+              DELETE /api/v1/users/:user_id/avatar
+            </button>
+            <span class="text-xs text-white/60">Удаляет аватар по пользователю; путь и X-User-ID должны совпадать.</span>
+          </div>
+        </section>
+
+        <!-- By avatar id -->
+        <section class="space-y-3">
+          <h2 class="text-lg font-semibold border-b border-white/20 pb-2">По ID аватара</h2>
+          <div class="flex flex-col lg:flex-row gap-4">
+            <div class="flex-1 space-y-2">
+              <input type="text" id="avatarIdInput" placeholder="UUID аватара"
+                class="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg font-mono text-sm placeholder-white/50 focus:ring-2 focus:ring-purple-500 outline-none">
+              <div class="flex flex-wrap gap-2 text-sm">
+                <label class="flex items-center gap-1 text-white/80">
+                  size
+                  <input type="text" id="avatarSizeQ" placeholder="пусто"
+                    class="w-24 px-2 py-1 bg-black/30 border border-white/20 rounded font-mono text-xs">
+                </label>
+                <label class="flex items-center gap-1 text-white/80">
+                  format
+                  <input type="text" id="avatarFormatQ" placeholder="webp"
+                    class="w-24 px-2 py-1 bg-black/30 border border-white/20 rounded font-mono text-xs">
+                </label>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <button type="button" id="metadataBtn"
+                  class="px-3 py-2 rounded-lg bg-white/15 hover:bg-white/25 border border-white/25 text-sm">GET
+                  …/metadata</button>
+                <button type="button" id="deleteByAvatarIdBtn"
+                  class="px-3 py-2 rounded-lg bg-red-600/70 hover:bg-red-600 text-sm">DELETE …/avatars/:id</button>
+              </div>
+            </div>
+            <div class="lg:w-64 flex flex-col items-center gap-2">
+              <p class="text-xs text-white/60 text-center">GET /api/v1/avatars/:avatar_id</p>
+              <div
+                class="w-full aspect-square max-w-[240px] rounded-xl border border-white/20 bg-black/30 overflow-hidden flex items-center justify-center">
+                <img id="avatarByIdImg" alt="Аватар по ID" class="max-w-full max-h-full object-contain hidden">
+                <span id="avatarByIdPlaceholder" class="text-white/40 text-sm px-4 text-center">Нет изображения</span>
+              </div>
+              <button type="button" id="reloadAvatarImgBtn"
+                class="text-xs text-purple-300 hover:text-purple-200 underline">Обновить превью</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- GET by user single -->
+        <section class="space-y-2">
+          <h2 class="text-lg font-semibold border-b border-white/20 pb-2">GET /api/v1/users/:user_id/avatar</h2>
+          <div class="flex flex-col sm:flex-row gap-2">
+            <input type="text" id="singleUserAvatarId" placeholder="UUID пользователя"
+              class="flex-1 px-4 py-3 bg-white/10 border border-white/20 rounded-lg font-mono text-sm focus:ring-2 focus:ring-purple-500 outline-none">
+            <button type="button" id="openUserAvatarBtn"
+              class="px-4 py-3 bg-white/15 hover:bg-white/25 border border-white/25 rounded-lg text-sm whitespace-nowrap">Открыть
+              в новой вкладке</button>
+          </div>
+        </section>
+
+        <!-- Response -->
+        <div id="responseContainer" class="hidden border-t border-white/20 pt-6">
+          <h2 class="text-xl font-semibold text-white mb-4">Ответ API</h2>
+          <div id="responseStatus" class="px-4 py-3 rounded-lg font-mono text-sm mb-3"></div>
+          <div class="bg-black/30 rounded-lg p-4 overflow-x-auto max-h-96 overflow-y-auto">
+            <pre id="responseJson" class="text-green-400 text-sm font-mono whitespace-pre-wrap"></pre>
+          </div>
+        </div>
+
+        <div id="errorMessage" class="hidden bg-red-500/20 border border-red-500/50 text-red-200 px-4 py-3 rounded-lg">
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    const LS_ACCESS = 'gophprofile_access_token';
+    const LS_REFRESH = 'gophprofile_refresh_token';
+
+    const form = document.getElementById('uploadForm');
+    const imageInput = document.getElementById('file');
+    const imagePreview = document.getElementById('imagePreview');
+    const previewImg = document.getElementById('previewImg');
+    const submitBtn = document.getElementById('submitBtn');
+    const btnText = document.getElementById('btnText');
+    const btnLoader = document.getElementById('btnLoader');
+    const responseContainer = document.getElementById('responseContainer');
+    const responseStatus = document.getElementById('responseStatus');
+    const responseJson = document.getElementById('responseJson');
+    const errorMessage = document.getElementById('errorMessage');
+    const userIdInput = document.getElementById('userId');
+    const listUserIdInput = document.getElementById('listUserId');
+    const avatarsListEl = document.getElementById('avatarsList');
+
+    function parseJwtSubject(accessToken) {
+      if (!accessToken || typeof accessToken !== 'string') return null;
+      const parts = accessToken.split('.');
+      if (parts.length < 2) return null;
+      try {
+        let b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+        const pad = b64.length % 4;
+        if (pad) b64 += '='.repeat(4 - pad);
+        const json = atob(b64);
+        const payload = JSON.parse(json);
+        return payload.sub || null;
+      } catch {
+        return null;
+      }
+    }
+
+    function loadTokensFromStorage() {
+      return {
+        access: localStorage.getItem(LS_ACCESS),
+        refresh: localStorage.getItem(LS_REFRESH),
+      };
+    }
+
+    function saveAuthResponse(data) {
+      if (data && typeof data === 'object') {
+        if (data.token) localStorage.setItem(LS_ACCESS, data.token);
+        if (data.refresh_token) {
+          localStorage.setItem(LS_REFRESH, data.refresh_token);
+          document.getElementById('refreshToken').value = data.refresh_token;
+        }
+        const sub = parseJwtSubject(data.token);
+        if (sub) {
+          userIdInput.value = sub;
+          if (!listUserIdInput.value) listUserIdInput.value = sub;
+        }
+      }
+    }
+
+    function restoreSessionFields() {
+      const { access, refresh } = loadTokensFromStorage();
+      if (refresh) document.getElementById('refreshToken').value = refresh;
+      const sub = parseJwtSubject(access);
+      if (sub && !userIdInput.value) userIdInput.value = sub;
+      if (sub && !listUserIdInput.value) listUserIdInput.value = sub;
+    }
+
+    imageInput.addEventListener('change', function (e) {
+      const file = e.target.files[0];
+      if (file && file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = function (ev) {
+          previewImg.src = ev.target.result;
+          imagePreview.classList.remove('hidden');
+        };
+        reader.readAsDataURL(file);
+      } else {
+        imagePreview.classList.add('hidden');
+      }
+    });
+
+    form.addEventListener('submit', async function (e) {
+      e.preventDefault();
+      const uid = userIdInput.value.trim();
+      const imageFile = imageInput.files[0];
+      if (!uid || !imageFile) {
+        showError('Укажите UUID пользователя (X-User-ID) и файл');
+        return;
+      }
+      setUploadLoading(true);
+      hideError();
+      hideResponse();
+      const formData = new FormData();
+      formData.append('file', imageFile);
+      try {
+        const response = await fetch('/api/v1/avatars', {
+          method: 'POST',
+          headers: { 'X-User-ID': uid },
+          body: formData,
+        });
+        const { parsed, raw } = await parseBody(response);
+        displayResponse(response, parsed !== undefined ? parsed : raw);
+        if (response.ok) await loadUserAvatarsListIfReady();
+      } catch (err) {
+        showError(`Сеть: ${err.message}`);
+      } finally {
+        setUploadLoading(false);
+      }
+    });
+
+    document.getElementById('healthBtn').addEventListener('click', async () => {
+      hideError();
+      try {
+        const res = await fetch('/health');
+        const data = await res.json();
+        displayResponse(res, data);
+      } catch (err) {
+        showError(err.message);
+      }
+    });
+
+    async function postJson(url, body) {
+      hideError();
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const { parsed, raw } = await parseBody(res);
+        displayResponse(res, parsed !== undefined ? parsed : raw);
+        if (res.ok && url.includes('/auth/')) saveAuthResponse(parsed);
+      } catch (err) {
+        showError(err.message);
+      }
+    }
+
+    document.getElementById('registerBtn').addEventListener('click', () => {
+      postJson('/api/v1/auth/register', {
+        email: document.getElementById('regEmail').value.trim(),
+        password: document.getElementById('regPassword').value,
+      });
+    });
+    document.getElementById('loginBtn').addEventListener('click', () => {
+      postJson('/api/v1/auth/login', {
+        email: document.getElementById('loginEmail').value.trim(),
+        password: document.getElementById('loginPassword').value,
+      });
+    });
+    document.getElementById('refreshBtn').addEventListener('click', () => {
+      postJson('/api/v1/auth/refresh', {
+        refresh_token: document.getElementById('refreshToken').value.trim(),
+      });
+    });
+
+    document.getElementById('fillUserFromJwtBtn').addEventListener('click', () => {
+      const { access } = loadTokensFromStorage();
+      const sub = parseJwtSubject(access);
+      if (sub) {
+        userIdInput.value = sub;
+        listUserIdInput.value = sub;
+        hideError();
+      } else {
+        showError('Нет сохранённого access-токена или в JWT нет поля sub. Сначала выполните вход или регистрацию.');
+      }
+    });
+
+    document.getElementById('clearSessionBtn').addEventListener('click', () => {
+      localStorage.removeItem(LS_ACCESS);
+      localStorage.removeItem(LS_REFRESH);
+      document.getElementById('refreshToken').value = '';
+      hideError();
+    });
+
+    document.getElementById('loadAvatarsBtn').addEventListener('click', loadUserAvatarsList);
+
+    async function loadUserAvatarsListIfReady() {
+      if (listUserIdInput.value.trim()) await loadUserAvatarsList();
+    }
+
+    async function loadUserAvatarsList() {
+      const uid = listUserIdInput.value.trim();
+      if (!uid) {
+        showError('Укажите UUID в поле списка');
+        return;
+      }
+      hideError();
+      avatarsListEl.innerHTML = '<p class="text-white/50 text-sm col-span-full">Загрузка…</p>';
+      try {
+        const res = await fetch(`/api/v1/users/${encodeURIComponent(uid)}/avatars`);
+        const { parsed, raw } = await parseBody(res);
+        if (!res.ok) {
+          avatarsListEl.innerHTML = '';
+          displayResponse(res, parsed !== undefined ? parsed : raw);
+          showError(`Список: ${res.status}`);
+          return;
+        }
+        displayResponse(res, parsed);
+        const items = Array.isArray(parsed) ? parsed : [];
+        renderAvatarCards(items);
+      } catch (err) {
+        avatarsListEl.innerHTML = '';
+        showError(err.message);
+      }
+    }
+
+    function avatarImageUrl(avatarId, useFormQuery) {
+      const params = new URLSearchParams();
+      if (useFormQuery) {
+        const s = document.getElementById('avatarSizeQ').value.trim();
+        const f = document.getElementById('avatarFormatQ').value.trim();
+        if (s) params.set('size', s);
+        if (f) params.set('format', f);
+      }
+      const q = params.toString();
+      return `/api/v1/avatars/${encodeURIComponent(avatarId)}${q ? '?' + q : ''}`;
+    }
+
+    function bustAvatarUrl(baseUrl) {
+      const sep = baseUrl.includes('?') ? '&' : '?';
+      return `${baseUrl}${sep}_=${Date.now()}`;
+    }
+
+    function renderAvatarCards(avatars) {
+      avatarsListEl.innerHTML = '';
+      if (!avatars.length) {
+        avatarsListEl.innerHTML = '<p class="text-white/50 text-sm">Пустой список</p>';
+        return;
+      }
+      const xUser = userIdInput.value.trim();
+      for (const a of avatars) {
+        if (!a || !a.id) continue;
+        const softDeleted = a.deleted_at != null && a.deleted_at !== '';
+        const card = document.createElement('div');
+        card.className =
+          'bg-black/25 border border-white/15 rounded-xl p-3 flex gap-3' +
+          (softDeleted ? ' ring-1 ring-amber-400/35 border-amber-500/25' : '');
+        const thumb = document.createElement('div');
+        thumb.className =
+          'w-20 h-20 flex-shrink-0 rounded-lg overflow-hidden ring-1 ring-inset ring-white/10 shadow-inner';
+        if (softDeleted) {
+          thumb.className +=
+            ' bg-gradient-to-br from-violet-950/95 via-slate-900 to-indigo-950 border border-amber-500/20';
+          thumb.setAttribute('role', 'img');
+          thumb.setAttribute('aria-label', 'Аватар мягко удалён, превью недоступно');
+          thumb.innerHTML = `
+            <div class="w-full h-full flex flex-col items-center justify-center gap-0.5 p-1">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" fill="none" class="w-11 h-11 text-amber-100/80 drop-shadow-[0_0_12px_rgba(251,191,36,0.15)]" aria-hidden="true">
+                <rect x="5" y="9" width="30" height="24" rx="3.5" stroke="currentColor" stroke-width="1.35" opacity="0.9"/>
+                <path d="M7 33 L35 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+                <circle cx="13" cy="16" r="2.8" fill="currentColor" opacity="0.35"/>
+                <path d="M22 22 L30 14" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" opacity="0.35"/>
+              </svg>
+              <span class="text-[8px] font-bold uppercase tracking-[0.14em] text-amber-200/85 leading-none">архив</span>
+            </div>`;
+        } else {
+          const img = document.createElement('img');
+          img.className = 'w-20 h-20 object-cover';
+          img.alt = 'avatar';
+          img.src = bustAvatarUrl(avatarImageUrl(a.id, false));
+          img.onerror = () => { img.style.opacity = '0.3'; };
+          thumb.appendChild(img);
+        }
+        const meta = document.createElement('div');
+        meta.className = 'flex-1 min-w-0 text-xs space-y-1';
+        const deletedBanner = softDeleted
+          ? `<div class="flex flex-wrap items-center gap-2 mb-1">
+            <span class="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-amber-500/20 text-amber-100 border border-amber-400/30">Мягко удалена</span>
+            <span class="text-[10px] text-white/45 font-mono truncate" title="${escapeHtml(String(a.deleted_at))}">${escapeHtml(String(a.deleted_at))}</span>
+          </div>`
+          : '';
+        const deleteBtnHtml = softDeleted
+          ? ''
+          : `<button type="button" class="px-2 py-1 rounded bg-red-600/50 hover:bg-red-600/80 text-[11px] btn-del" data-id="${escapeHtml(a.id)}" ${xUser ? '' : 'disabled title="Нужен X-User-ID"'}>удалить</button>`;
+        meta.innerHTML = `
+          ${deletedBanner}
+          <div class="font-mono text-white/90 truncate" title="${escapeHtml(a.id)}">${escapeHtml(a.id)}</div>
+          <div class="text-white/60">${escapeHtml(a.processing_status || '')} · ${escapeHtml(a.upload_status || '')}</div>
+          <div class="flex flex-wrap gap-1 mt-2">
+            <button type="button" class="px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-[11px] btn-meta" data-id="${escapeHtml(a.id)}">metadata</button>
+            ${deleteBtnHtml}
+          </div>`;
+        card.appendChild(thumb);
+        card.appendChild(meta);
+        avatarsListEl.appendChild(card);
+
+        meta.querySelector('.btn-meta').addEventListener('click', () => fetchMetadata(a.id));
+        const delBtn = meta.querySelector('.btn-del');
+        if (delBtn) delBtn.addEventListener('click', () => deleteAvatarById(a.id));
+      }
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    async function fetchMetadata(avatarId) {
+      hideError();
+      try {
+        const res = await fetch(`/api/v1/avatars/${encodeURIComponent(avatarId)}/metadata`);
+        const { parsed, raw } = await parseBody(res);
+        displayResponse(res, parsed !== undefined ? parsed : raw);
+      } catch (e) {
+        showError(e.message);
+      }
+    }
+
+    async function deleteAvatarById(avatarId) {
+      const xUser = userIdInput.value.trim();
+      if (!xUser) {
+        showError('Для удаления укажите X-User-ID (владелец)');
+        return;
+      }
+      if (!confirm(`Удалить аватар ${avatarId}?`)) return;
+      hideError();
+      try {
+        const res = await fetch(`/api/v1/avatars/${encodeURIComponent(avatarId)}`, {
+          method: 'DELETE',
+          headers: { 'X-User-ID': xUser },
+        });
+        const { parsed, raw } = await parseBody(res);
+        displayResponse(res, res.status === 204 ? '(нет тела, 204 No Content)' : (parsed !== undefined ? parsed : raw));
+        if (res.ok) await loadUserAvatarsListIfReady();
+        updateAvatarByIdPreview();
+      } catch (e) {
+        showError(e.message);
+      }
+    }
+
+    document.getElementById('metadataBtn').addEventListener('click', () => {
+      const id = document.getElementById('avatarIdInput').value.trim();
+      if (!id) return showError('Введите UUID аватара');
+      fetchMetadata(id);
+    });
+
+    document.getElementById('deleteByAvatarIdBtn').addEventListener('click', () => {
+      const id = document.getElementById('avatarIdInput').value.trim();
+      if (!id) return showError('Введите UUID аватара');
+      deleteAvatarById(id);
+    });
+
+    document.getElementById('deleteUserAvatarBtn').addEventListener('click', async () => {
+      const pathUid = listUserIdInput.value.trim();
+      const xUser = userIdInput.value.trim();
+      if (!pathUid || !xUser) {
+        showError('Нужны UUID в поле списка и X-User-ID (должны совпадать)');
+        return;
+      }
+      if (pathUid !== xUser) {
+        showError('UUID в поле списка и X-User-ID должны совпадать для этого запроса');
+        return;
+      }
+      if (!confirm('Удалить аватар пользователя по user_id?')) return;
+      hideError();
+      try {
+        const res = await fetch(`/api/v1/users/${encodeURIComponent(pathUid)}/avatar`, {
+          method: 'DELETE',
+          headers: { 'X-User-ID': xUser },
+        });
+        const { parsed, raw } = await parseBody(res);
+        displayResponse(res, res.status === 204 ? '(нет тела, 204 No Content)' : (parsed !== undefined ? parsed : raw));
+        if (res.ok) await loadUserAvatarsListIfReady();
+      } catch (e) {
+        showError(e.message);
+      }
+    });
+
+    document.getElementById('openUserAvatarBtn').addEventListener('click', () => {
+      const uid = document.getElementById('singleUserAvatarId').value.trim();
+      if (!uid) return showError('Введите UUID пользователя');
+      const url = `/api/v1/users/${encodeURIComponent(uid)}/avatar`;
+      window.open(url, '_blank', 'noopener,noreferrer');
+    });
+
+    const avatarByIdImg = document.getElementById('avatarByIdImg');
+    const avatarByIdPlaceholder = document.getElementById('avatarByIdPlaceholder');
+
+    function updateAvatarByIdPreview() {
+      const id = document.getElementById('avatarIdInput').value.trim();
+      if (!id) {
+        avatarByIdImg.classList.add('hidden');
+        avatarByIdPlaceholder.textContent = 'Нет изображения';
+        avatarByIdPlaceholder.classList.remove('hidden');
+        avatarByIdImg.removeAttribute('src');
+        return;
+      }
+      avatarByIdPlaceholder.classList.add('hidden');
+      avatarByIdImg.classList.remove('hidden');
+      avatarByIdImg.src = bustAvatarUrl(avatarImageUrl(id, true));
+      avatarByIdImg.onerror = () => {
+        avatarByIdImg.classList.add('hidden');
+        avatarByIdPlaceholder.textContent = 'Ошибка загрузки (404?)';
+        avatarByIdPlaceholder.classList.remove('hidden');
+      };
+      avatarByIdImg.onload = () => {
+        avatarByIdPlaceholder.classList.add('hidden');
+        avatarByIdImg.classList.remove('hidden');
+      };
+    }
+
+    document.getElementById('avatarIdInput').addEventListener('change', updateAvatarByIdPreview);
+    document.getElementById('avatarIdInput').addEventListener('input', debounce(updateAvatarByIdPreview, 400));
+    document.getElementById('avatarSizeQ').addEventListener('change', updateAvatarByIdPreview);
+    document.getElementById('avatarFormatQ').addEventListener('change', updateAvatarByIdPreview);
+    document.getElementById('reloadAvatarImgBtn').addEventListener('click', updateAvatarByIdPreview);
+
+    function debounce(fn, ms) {
+      let t;
+      return () => {
+        clearTimeout(t);
+        t = setTimeout(fn, ms);
+      };
+    }
+
+    async function parseBody(response) {
+      const raw = await response.text();
+      if (!raw) return { raw: '' };
+      try {
+        return { parsed: JSON.parse(raw), raw };
+      } catch {
+        return { raw };
+      }
+    }
+
+    function setUploadLoading(loading) {
+      if (loading) {
+        submitBtn.disabled = true;
+        btnText.classList.add('hidden');
+        btnLoader.classList.remove('hidden');
+        btnLoader.classList.add('flex');
+      } else {
+        submitBtn.disabled = false;
+        btnText.classList.remove('hidden');
+        btnLoader.classList.add('hidden');
+        btnLoader.classList.remove('flex');
+      }
+    }
+
+    function displayResponse(response, data) {
+      responseContainer.classList.remove('hidden');
+      const statusClass = response.ok
+        ? (response.status === 201 || response.status === 204)
+          ? 'bg-green-500/20 border border-green-500/50 text-green-200'
+          : 'bg-blue-500/20 border border-blue-500/50 text-blue-200'
+        : 'bg-red-500/20 border border-red-500/50 text-red-200';
+      responseStatus.className = `px-4 py-3 rounded-lg font-mono text-sm ${statusClass}`;
+      responseStatus.textContent = `HTTP ${response.status} ${response.statusText}`;
+      if (typeof data === 'object' && data !== null) {
+        responseJson.textContent = JSON.stringify(data, null, 2);
+      } else {
+        responseJson.textContent = String(data);
+      }
+      if (!response.ok) {
+        showError(`Запрос завершился с кодом ${response.status}`);
+      }
+    }
+
+    function showError(message) {
+      errorMessage.textContent = message;
+      errorMessage.classList.remove('hidden');
+    }
+
+    function hideError() {
+      errorMessage.classList.add('hidden');
+    }
+
+    function hideResponse() {
+      responseContainer.classList.add('hidden');
+    }
+
+    restoreSessionFields();
+    syncListUserFromSession();
+    userIdInput.addEventListener('input', syncListUserFromSession);
+
+    function syncListUserFromSession() {
+      if (!listUserIdInput.value) listUserIdInput.value = userIdInput.value.trim();
+    }
+  </script>
+</body>
+
+</html>
