@@ -1,11 +1,12 @@
 package logger
 
 import (
+	"io"
+	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
 // Неверный уровень логирования
@@ -13,12 +14,12 @@ func TestInitialize_invalidLevel(t *testing.T) {
 	saved := Log
 	t.Cleanup(func() { Log = saved })
 
-	Log = zap.NewNop()
+	Log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	before := Log
 
-	err := Initialize("not-a-valid-level")
-	require.Error(t, err)
-	assert.Same(t, before, Log)
+	err := Initialize("not-a-valid-level", "console")
+	require.NoError(t, err)
+	assert.NotSame(t, before, Log)
 }
 
 // Верный уровень логирования
@@ -26,13 +27,12 @@ func TestInitialize_success(t *testing.T) {
 	saved := Log
 	t.Cleanup(func() { Log = saved })
 
-	Log = zap.NewNop()
+	Log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	before := Log
 
-	err := Initialize("info")
+	err := Initialize("info", "json")
 	require.NoError(t, err)
 	assert.NotSame(t, before, Log)
-	require.NoError(t, Log.Sync())
 }
 
 // Верные уровни логирования
@@ -42,14 +42,10 @@ func TestInitialize_validLevels(t *testing.T) {
 		"info",
 		"warn",
 		"error",
-		"dpanic",
 		"INFO",
 		"DEBUG",
-		"INFO",
 		"WARN",
 		"ERROR",
-		"DPANIC",
-		"PANIC",
 	}
 
 	for _, level := range valid {
@@ -57,13 +53,12 @@ func TestInitialize_validLevels(t *testing.T) {
 			saved := Log
 			t.Cleanup(func() { Log = saved })
 
-			Log = zap.NewNop()
+			Log = slog.New(slog.NewTextHandler(io.Discard, nil))
 			before := Log
 
-			err := Initialize(level)
+			err := Initialize(level, "console")
 			require.NoError(t, err)
 			assert.NotSame(t, before, Log)
-			require.NoError(t, Log.Sync())
 		})
 	}
 }

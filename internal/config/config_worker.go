@@ -31,6 +31,8 @@ type ConfigWorker struct {
 	MinioSecretKey  string `env:"MINIO_SECRET_KEY" json:"minio_secret_key,omitempty"`   // Secret Key MinIO
 	MinioBucketName string `env:"MINIO_BUCKET_NAME" json:"minio_bucket_name,omitempty"` // Имя бакета MinIO
 	MinioUseSSL     bool   `env:"MINIO_USE_SSL" json:"minio_use_ssl,omitempty"`         // Использовать SSL для MinIO
+
+	Observability ObservabilityConfig
 }
 
 // fileConfig — JSON-файл; указатели задают поля, явно присутствующие в файле.
@@ -51,6 +53,7 @@ type fileConfigWorker struct {
 	MinioSecretKey   *string `json:"minio_secret_key"`  // Secret Key MinIO
 	MinioBucketName  *string `json:"minio_bucket_name"` // Имя бакета MinIO
 	MinioUseSSL      *bool   `json:"minio_use_ssl"`     // Использовать SSL для MinIO
+	fileObservabilityConfig
 }
 
 // PrintWorkerConfig записывает полный дамп настроек одной строкой в лог (вызывать после logger.Initialize).
@@ -63,6 +66,8 @@ func (c *ConfigWorker) PrintWorkerConfig() {
 	fmt.Fprintf(&b, "MaxFileSize=%d; ", c.MaxFileSize)
 	fmt.Fprintf(&b, "MinioEndpoint=%s MinioAccessKey=%s MinioSecretKey=%s MinioBucketName=%s MinioUseSSL=%t; ",
 		c.MinioEndpoint, c.MinioAccessKey, redactSecret(c.MinioSecretKey), c.MinioBucketName, c.MinioUseSSL)
+	fmt.Fprintf(&b, "OtelEnabled=%t OtelEndpoint=%s OtelServiceName=%s MetricsAddr=%s LogFormat=%s; ",
+		c.Observability.OtelEnabled, c.Observability.OtelEndpoint, c.Observability.OtelServiceName, c.Observability.MetricsAddr, c.Observability.LogFormat)
 	logger.Log.Info(b.String())
 }
 
@@ -186,6 +191,8 @@ func applyEnvToConfigWorker(config *ConfigWorker, skipConfigFromEnv bool) (*Conf
 		}
 	}
 
+	applyObservabilityEnv(&config.Observability)
+
 	return config, nil
 }
 
@@ -248,6 +255,7 @@ func defaultConfigWorker() ConfigWorker {
 		MinioSecretKey:   "",
 		MinioBucketName:  "",
 		MinioUseSSL:      false,
+		Observability:    defaultObservabilityConfig(),
 	}
 }
 
@@ -305,6 +313,8 @@ func mergeConfigWorkerFromFile(cfg *ConfigWorker, path string) error {
 	if fc.MinioUseSSL != nil {
 		cfg.MinioUseSSL = *fc.MinioUseSSL
 	}
+
+	mergeObservabilityFromFile(&cfg.Observability, &fc.fileObservabilityConfig)
 
 	return nil
 }

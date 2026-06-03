@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coolycow/gophprofile/internal/observability"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/google/uuid"
 )
@@ -65,6 +66,7 @@ func RepublishAvatarJob(ctx context.Context, pub *amqp.Channel, body []byte, job
 		return fmt.Errorf("empty routing key for job type %q", job.Type)
 	}
 	headers := amqp.Table{headerRetryCount: nextRetry}
+	headers = observability.InjectAMQPHeaders(ctx, headers)
 	return pub.PublishWithContext(ctx, ExchangeAvatars, rk, false, false, amqp.Publishing{
 		ContentType:   "application/json",
 		DeliveryMode:  amqp.Persistent,

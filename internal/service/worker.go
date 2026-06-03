@@ -9,11 +9,16 @@ import (
 	"io"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/coolycow/gophprofile/internal/config"
 	"github.com/coolycow/gophprofile/internal/model"
+	"github.com/coolycow/gophprofile/internal/observability"
 	"github.com/coolycow/gophprofile/internal/repository"
 	"github.com/minio/minio-go/v7"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"golang.org/x/image/draw"
 
 	_ "image/png"
@@ -53,6 +58,17 @@ func NewWorkerService(repo repository.GophProfileRepository, cfg *config.ConfigW
 
 // ProcessAvatar обрабатывает аватарку
 func (s *workerService) ProcessAvatar(ctx context.Context, avatarID string) error {
+	start := time.Now()
+	jobType := "process"
+	status := "error"
+	defer func() {
+		observability.ObserveJob(jobType, status, time.Since(start))
+	}()
+
+	ctx, span := otel.Tracer(observability.Tracer()).Start(ctx, "worker.process_avatar")
+	defer span.End()
+	span.SetAttributes(attribute.String("avatar_id", avatarID))
+
 	// Обрезаем пробелы
 	avatarID = strings.TrimSpace(avatarID)
 	if avatarID == "" {
@@ -99,9 +115,7 @@ func (s *workerService) ProcessAvatar(ctx context.Context, avatarID string) erro
 		}
 
 		key := thumbnailObjectKey(avatar, side)
-		_, putErr := s.minioClient.PutObject(ctx, s.cfg.MinioBucketName, key, bytes.NewReader(jpegBuf), int64(len(jpegBuf)), minio.PutObjectOptions{
-			ContentType: "image/jpeg",
-		})
+		_, putErr := s.putObject(ctx, s.cfg.MinioBucketName, key, bytes.NewReader(jpegBuf), int64(len(jpegBuf)), "image/jpeg")
 		if putErr != nil {
 			s.removeMinioKeys(ctx, keys)
 			_ = s.repo.UpdateAvatarThumbnails(ctx, avatarID, nil, processingStatusFailed, nil)
@@ -119,6 +133,7 @@ func (s *workerService) ProcessAvatar(ctx context.Context, avatarID string) erro
 		return err
 	}
 
+	status = "success"
 	return nil
 }
 
@@ -136,7 +151,7 @@ func (s *workerService) readOriginalAvatar(ctx context.Context, s3Key string) ([
 	}
 
 	// Получаем оригинальный аватар из S3
-	obj, err := s.minioClient.GetObject(ctx, s.cfg.MinioBucketName, s3Key, minio.GetObjectOptions{})
+	obj, err := s.getObject(ctx, s.cfg.MinioBucketName, s3Key)
 	if err != nil {
 		return nil, err
 	}
@@ -212,7 +227,7 @@ func (s *workerService) removeMinioKeys(ctx context.Context, keys []string) {
 		if k == "" {
 			continue
 		}
-		_ = s.minioClient.RemoveObject(ctx, s.cfg.MinioBucketName, k, minio.RemoveObjectOptions{})
+		_ = s.removeObject(ctx, s.cfg.MinioBucketName, k)
 	}
 }
 
@@ -240,17 +255,33 @@ func mergeS3DeletionKeys(main string, thumbnails []string) []string {
 
 // DeleteAvatarByS3Key удаляет из S3 оригинал и все переданные миниатюры.
 func (s *workerService) DeleteAvatarByS3Key(ctx context.Context, s3Key string, thumbnailS3Keys []string) error {
+	start := time.Now()
+	jobType := "delete_by_s3_key"
+	status := "error"
+	defer func() {
+		observability.ObserveJob(jobType, status, time.Since(start))
+	}()
+
+	ctx, span := otel.Tracer(observability.Tracer()).Start(ctx, "worker.delete_by_s3_key")
+	defer span.End()
+	span.SetAttributes(attribute.String("s3_key", s3Key))
+
 	// Объединяем ключи оригинального аватара и миниатюр без дубликатов и пустых строк (оригинал первым)
 	keys := mergeS3DeletionKeys(s3Key, thumbnailS3Keys)
 	var firstErr error
 
 	// Удаляем оригинал и все миниатюры
 	for _, k := range keys {
-		err := s.minioClient.RemoveObject(ctx, s.cfg.MinioBucketName, k, minio.RemoveObjectOptions{})
+		err := s.removeObject(ctx, s.cfg.MinioBucketName, k)
 		if err != nil && firstErr == nil {
 			firstErr = err
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 		}
 	}
 
+	if firstErr == nil {
+		status = "success"
+	}
 	return firstErr
 }

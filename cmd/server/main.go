@@ -15,13 +15,13 @@ import (
 	"github.com/coolycow/gophprofile/internal/config"
 	"github.com/coolycow/gophprofile/internal/logger"
 	"github.com/coolycow/gophprofile/internal/minio"
+	"github.com/coolycow/gophprofile/internal/observability"
 	"github.com/coolycow/gophprofile/internal/observer/audit"
 	"github.com/coolycow/gophprofile/internal/rabbitmq"
 	"github.com/coolycow/gophprofile/internal/repository"
 	"github.com/coolycow/gophprofile/internal/router"
 	"github.com/coolycow/gophprofile/internal/service"
 	amqp "github.com/rabbitmq/amqp091-go"
-	"go.uber.org/zap"
 )
 
 var (
@@ -44,10 +44,27 @@ func main() {
 		log.Fatalf("Failed to initialize configuration: %v", err)
 	}
 
+	obsCfg := observability.FromServer(cfg)
+	if obsCfg.OtelServiceName == "" {
+		obsCfg.OtelServiceName = "gophprofile-server"
+	}
+
 	// Инициализируем логер
-	if err = logger.Initialize(cfg.LogLevel); err != nil {
+	if err = logger.Initialize(cfg.LogLevel, obsCfg.LogFormat); err != nil {
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}
+
+	initCtx := context.Background()
+	if err = observability.InitTracing(initCtx, obsCfg); err != nil {
+		logger.Log.Error("Failed to initialize tracing", "error", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := observability.Shutdown(shutdownCtx); err != nil {
+			logger.Log.Error("Failed to shutdown tracing", "error", err)
+		}
+	}()
 
 	// Выводим настройки в лог
 	cfg.PrintServerConfig()
@@ -66,6 +83,10 @@ func main() {
 
 	logger.Log.Info("Initialized postgres repository successfully")
 
+	if pgRepo, ok := repo.(*repository.PostgresRepository); ok {
+		observability.StartDBStatsCollector(initCtx, pgRepo.DB(), 15*time.Second)
+	}
+
 	// Если флаг запуска миграций установлен, выполняем миграции
 	if cfg.RunMigrations {
 		if err = repo.RunMigrations(); err != nil {
@@ -77,55 +98,73 @@ func main() {
 	// В конце работы приложения необходимо правильно закрыть хранилище.
 	defer func() {
 		if err = repo.Close(); err != nil {
-			logger.Log.Error("Error closing repository", zap.Error(err))
+			logger.Log.Error("Error closing repository", "error", err)
 		}
 	}()
 
 	// Инициализируем нотифайер аудита (файл и/или URL из конфига; если оба пустые — приёмников не будет)
 	auditNotifier, err := audit.NewNotifier(cfg.AuditFile, cfg.AuditURL)
 	if err != nil {
-		logger.Log.Fatal("Failed to initialize audit notifier", zap.Error(err))
+		logger.Log.Error("Failed to initialize audit notifier", "error", err)
+		os.Exit(1)
 	}
 
 	// Инициализируем MinIO клиент
 	minioClient, err := minio.NewMinioClient(cfg.MinioEndpoint, cfg.MinioAccessKey, cfg.MinioSecretKey, cfg.MinioBucketName, cfg.MinioUseSSL)
 	if err != nil {
-		logger.Log.Fatal("Failed to initialize minio client", zap.Error(err))
+		logger.Log.Error("Failed to initialize minio client", "error", err)
+		os.Exit(1)
 	}
 
 	// Подключение к RabbitMQ серверу
 	amqpURI := rabbitmq.BuildURI(cfg.RabbitMQUser, cfg.RabbitMQPassword, cfg.RabbitMQHost, cfg.RabbitMQPort, cfg.RabbitMQVHost)
 	rabbitConn, err := amqp.Dial(amqpURI)
 	if err != nil {
-		logger.Log.Fatal("Failed to connect to RabbitMQ", zap.Error(err))
+		logger.Log.Error("Failed to connect to RabbitMQ", "error", err)
+		os.Exit(1)
 	}
 	defer rabbitConn.Close()
 
 	// Создание канала для работы с RabbitMQ
 	ch, err := rabbitConn.Channel()
 	if err != nil {
-		logger.Log.Fatal("Failed to open a channel", zap.Error(err))
+		logger.Log.Error("Failed to open a channel", "error", err)
+		os.Exit(1)
 	}
 	defer ch.Close()
 
 	// Объявление exchange, очереди и привязок (topic)
 	queue, err := rabbitmq.EnsureAvatarsTopology(ch)
 	if err != nil {
-		logger.Log.Fatal("Failed to declare RabbitMQ topology", zap.Error(err))
+		logger.Log.Error("Failed to declare RabbitMQ topology", "error", err)
+		os.Exit(1)
 	}
-	logger.Log.Info("Declared RabbitMQ topology", zap.String("queue", queue.Name))
+	logger.Log.Info("Declared RabbitMQ topology", "queue", queue.Name)
 
 	// Создание издателя заданий
 	avatarJobPublisher := rabbitmq.NewAvatarJobPublisher(ch)
 
 	rabbitHealth := rabbitmq.NewHealthConn(rabbitConn)
 
+	metricsCtx, metricsCancel := context.WithCancel(context.Background())
+	defer metricsCancel()
+	metricsSrv, err := observability.StartMetricsServer(metricsCtx, obsCfg.MetricsAddr)
+	if err != nil {
+		logger.Log.Error("Failed to start metrics server", "error", err)
+		os.Exit(1)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = observability.ShutdownMetricsServer(shutdownCtx, metricsSrv)
+	}()
+
 	// Инициализируем роутер
 	r := router.NewRouter(cfg, repo, auditNotifier, minioClient, avatarJobPublisher, rabbitHealth)
 
 	// Получаем адрес сервера из настроек и запускаем сервер
 	serverAddress := cfg.GetServerAddress()
-	logger.Log.Info("Running server ", zap.String("address", serverAddress))
+	logger.Log.Info("Running server ", "address", serverAddress)
 
 	// Инициализируем сервер
 	srv := &http.Server{
@@ -142,7 +181,8 @@ func main() {
 			serveErr = srv.ListenAndServe()
 		}
 		if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
-			logger.Log.Fatal("server error", zap.Error(serveErr))
+			logger.Log.Error("server error", "error", serveErr)
+			os.Exit(1)
 		}
 	}()
 
@@ -150,7 +190,7 @@ func main() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	sig := <-quit
-	logger.Log.Info("shutdown signal received", zap.String("signal", sig.String()))
+	logger.Log.Info("shutdown signal received", "signal", sig.String())
 
 	// Создаем контекст для завершения работы сервера
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -167,7 +207,7 @@ func main() {
 	go func() {
 		defer shutdownWg.Done()
 		if shutdownErr := srv.Shutdown(shutdownCtx); shutdownErr != nil {
-			logger.Log.Error("graceful shutdown failed", zap.Error(shutdownErr))
+			logger.Log.Error("graceful shutdown failed", "error", shutdownErr)
 		}
 	}()
 

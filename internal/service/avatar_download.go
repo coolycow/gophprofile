@@ -87,7 +87,7 @@ func (s *avatarService) resolveThumbnailKey(ctx context.Context, a *model.Avatar
 		}
 	}
 	candidate := s.thumbnailObjectKeyGuess(a, side)
-	_, err := s.minioClient.StatObject(ctx, s.cfg.MinioBucketName, candidate, minio.StatObjectOptions{})
+	_, err := statObject(ctx, s.minioClient, s.cfg.MinioBucketName, candidate)
 	if err == nil {
 		return candidate, nil
 	}
@@ -104,7 +104,7 @@ func (s *avatarService) readObjectLimited(ctx context.Context, objectKey string)
 	if maxB < 1 {
 		maxB = 1 << 20
 	}
-	obj, err := s.minioClient.GetObject(ctx, s.cfg.MinioBucketName, objectKey, minio.GetObjectOptions{})
+	obj, err := s.getObject(ctx, s.cfg.MinioBucketName, objectKey)
 	if err != nil {
 		return nil, "", err
 	}
@@ -212,7 +212,7 @@ func (s *avatarService) PrepareAvatarDownload(ctx context.Context, avatar *model
 	// Без format — поток из MinIO (оригинальный Content-Type / ETag объекта).
 	if format == "" {
 		// Получаем объект из MinIO
-		obj, err := s.minioClient.GetObject(ctx, s.cfg.MinioBucketName, objectKey, minio.GetObjectOptions{})
+		obj, err := s.getObject(ctx, s.cfg.MinioBucketName, objectKey)
 		if err != nil {
 			if minio.ToErrorResponse(err).Code == "NoSuchKey" {
 				return nil, profileError.CustomError{Message: "Avatar not found", StatusCode: http.StatusNotFound}

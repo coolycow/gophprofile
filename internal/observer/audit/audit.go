@@ -8,7 +8,6 @@ import (
 
 	"github.com/coolycow/gophprofile/internal/logger"
 	"github.com/coolycow/gophprofile/internal/model"
-	"go.uber.org/zap"
 )
 
 // Константы типа действия в событии аудита.
@@ -51,7 +50,7 @@ func (n *Notifier) Notify(event *model.Audit) {
 
 	for _, r := range receivers {
 		if err := r.Send(event); err != nil {
-			logger.Log.Warn("audit receiver error", zap.Error(err))
+			logger.Log.Warn("audit receiver error", "error", err)
 		}
 	}
 }

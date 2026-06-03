@@ -1,10 +1,11 @@
-version: '3.8'
-
 volumes:
   postgres_data:
   rabbitmq_data:
   minio_data:
   gophprofile_data:
+  prometheus_data:
+  grafana_data:
+  loki_data:
 
 networks:
   gophprofile_net:
@@ -45,6 +46,7 @@ services:
     container_name: server
     ports:
       - "8333:8080"
+      - "9091:9090"
     environment:
       # Иначе Listen на 127.0.0.1 — с хоста через publish портов запрос не попадает в процесс (empty response).
       - HOST=${HOST:-0.0.0.0}
@@ -55,6 +57,8 @@ services:
       - DATABASE_DSN=${DATABASE_DSN:-host=postgres port=5432 user=gophprofile password=gophprofile dbname=gophprofile sslmode=disable}
       - RABBITMQ_HOST=${RABBITMQ_HOST:-rabbitmq}
       - RABBITMQ_PORT=${RABBITMQ_PORT:-5672}
+      - RABBITMQ_USER=${RABBITMQ_DEFAULT_USER:-gophprofile}
+      - RABBITMQ_PASSWORD=${RABBITMQ_DEFAULT_PASS:-gophprofile}
       # API MinIO на 9000; имя хоста резолвится только во внутренней сети compose
       - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio:9000}
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-gophprofile}
@@ -64,6 +68,11 @@ services:
       - AUDIT_FILE=${AUDIT_FILE:-/tmp/audit_server.json}
       - RUN_MIGRATIONS=${RUN_MIGRATIONS:-false}
       - SECRET_KEY=${SECRET_KEY:-}
+      - OTEL_ENABLED=${OTEL_ENABLED:-true}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-jaeger:4317}
+      - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-gophprofile-server}
+      - METRICS_ADDR=${METRICS_ADDR:-:9090}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
     volumes:
       - gophprofile_data:/app
     depends_on:
@@ -73,6 +82,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      jaeger:
+        condition: service_started
     networks:
       - gophprofile_net
 
@@ -87,6 +98,8 @@ services:
         BUILD_VERSION: ${BUILD_VERSION:-unknown}
     image: gophprofile/worker:latest
     container_name: worker
+    ports:
+      - "9092:9090"
     environment:
       - TARGETOS=${TARGETOS:-linux}
       - TARGETARCH=${TARGETARCH:-amd64}
@@ -94,6 +107,8 @@ services:
       - DATABASE_DSN=${DATABASE_DSN:-host=postgres port=5432 user=gophprofile password=gophprofile dbname=gophprofile sslmode=disable}
       - RABBITMQ_HOST=${RABBITMQ_HOST:-rabbitmq}
       - RABBITMQ_PORT=${RABBITMQ_PORT:-5672}
+      - RABBITMQ_USER=${RABBITMQ_DEFAULT_USER:-gophprofile}
+      - RABBITMQ_PASSWORD=${RABBITMQ_DEFAULT_PASS:-gophprofile}
       - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio:9000}
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-gophprofile}
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-gophprofile}
@@ -101,6 +116,11 @@ services:
       - MINIO_USE_SSL=${MINIO_USE_SSL:-false}
       - AUDIT_FILE=${AUDIT_FILE:-/tmp/audit_worker.json}
       - RUN_MIGRATIONS=${RUN_MIGRATIONS:-false}
+      - OTEL_ENABLED=${OTEL_ENABLED:-true}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-jaeger:4317}
+      - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-gophprofile-worker}
+      - METRICS_ADDR=${METRICS_ADDR:-:9090}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
     depends_on:
       postgres:
         condition: service_healthy
@@ -108,6 +128,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      jaeger:
+        condition: service_started
     networks:
       - gophprofile_net
 
@@ -137,8 +159,8 @@ services:
     image: rabbitmq:3.12-management
     container_name: rabbitmq
     ports:
-      - "5672:5672"     # AMQP для приложений
-      - "15672:15672"   # Веб-панель управления
+      - "${RABBITMQ_PUBLISH_PORT:-5673}:5672"     # AMQP с хоста (внутри сети compose — rabbitmq:5672)
+      - "${RABBITMQ_MANAGEMENT_PUBLISH_PORT:-15673}:15672"   # Веб-панель управления
     environment:
       RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "+sbwt none +sbwtdcpu none +sbwtdio none"
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-gophprofile}
@@ -159,8 +181,8 @@ services:
     container_name: minio
     command: server /data --console-address ":9001"
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "${MINIO_API_PUBLISH_PORT:-9002}:9000"
+      - "${MINIO_CONSOLE_PUBLISH_PORT:-9003}:9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-gophprofile}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-gophprofile}
@@ -176,5 +198,116 @@ services:
       timeout: 5s
       retries: 10
       start_period: 15s
+    networks:
+      - gophprofile_net
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.76.0
+    container_name: jaeger
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    networks:
+      - gophprofile_net
+
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/observability/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    depends_on:
+      - alertmanager
+    networks:
+      - gophprofile_net
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    container_name: alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./deploy/observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+    networks:
+      - gophprofile_net
+
+  loki:
+    image: grafana/loki:3.4.2
+    container_name: loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./deploy/observability/loki/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - gophprofile_net
+
+  promtail:
+    image: grafana/promtail:3.4.2
+    container_name: promtail
+    volumes:
+      - ./deploy/observability/promtail/promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+    networks:
+      - gophprofile_net
+
+  grafana:
+    image: grafana/grafana:11.5.2
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./deploy/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/observability/grafana/dashboards:/etc/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+      - loki
+      - jaeger
+    networks:
+      - gophprofile_net
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.16.0
+    container_name: postgres-exporter
+    environment:
+      DATA_SOURCE_NAME: postgresql://gophprofile:gophprofile@postgres:5432/gophprofile?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - gophprofile_net
+
+  rabbitmq-exporter:
+    image: kbudde/rabbitmq-exporter:1.0.0
+    container_name: rabbitmq-exporter
+    environment:
+      RABBIT_URL: http://rabbitmq:15672
+      RABBIT_USER: ${RABBITMQ_DEFAULT_USER:-gophprofile}
+      RABBIT_PASSWORD: ${RABBITMQ_DEFAULT_PASS:-gophprofile}
+      RABBIT_CAPABILITIES: bert,no_sort
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
     networks:
       - gophprofile_net
