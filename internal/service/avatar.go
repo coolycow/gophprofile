@@ -83,11 +83,6 @@ func (s *avatarService) UploadAvatar(ctx context.Context, userID string, file io
 		attribute.String("file_name", fileHeader.Filename),
 	)
 
-	observability.LoggerFromContext(ctx).Info("uploading avatar",
-		"user_id", userID,
-		"file_name", fileHeader.Filename,
-	)
-
 	// Получаем максимальный размер файла
 	maxB := s.cfg.MaxFileSize
 	if maxB < 1 {
@@ -160,7 +155,7 @@ func (s *avatarService) UploadAvatar(ctx context.Context, userID string, file io
 	n := int64(len(reader))
 	span.SetAttributes(attribute.Int64("file_size", n))
 
-	observability.LoggerFromContext(ctx).Info("uploading avatar",
+	logger.FromContext(ctx).Info("uploading avatar",
 		"user_id", userID,
 		"file_size", n,
 		"mime_type", mediaType,

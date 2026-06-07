@@ -18,8 +18,8 @@ func TestInitialize_invalidLevel(t *testing.T) {
 	before := Log
 
 	err := Initialize("not-a-valid-level", "console")
-	require.NoError(t, err)
-	assert.NotSame(t, before, Log)
+	require.Error(t, err)
+	assert.Same(t, before, Log)
 }
 
 // Верный уровень логирования

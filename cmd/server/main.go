@@ -54,17 +54,26 @@ func main() {
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}
 
+	observability.InitMetrics()
+
 	initCtx := context.Background()
-	if err = observability.InitTracing(initCtx, obsCfg); err != nil {
+	shutdownTracing, err := observability.InitTracing(initCtx, obsCfg)
+	if err != nil {
 		logger.Log.Error("Failed to initialize tracing", "error", err)
 	}
 	defer func() {
+		if shutdownTracing == nil {
+			return
+		}
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := observability.Shutdown(shutdownCtx); err != nil {
+		if err := shutdownTracing(shutdownCtx); err != nil {
 			logger.Log.Error("Failed to shutdown tracing", "error", err)
 		}
 	}()
+
+	metricsCtx, metricsCancel := context.WithCancel(context.Background())
+	defer metricsCancel()
 
 	// Выводим настройки в лог
 	cfg.PrintServerConfig()
@@ -84,7 +93,7 @@ func main() {
 	logger.Log.Info("Initialized postgres repository successfully")
 
 	if pgRepo, ok := repo.(*repository.PostgresRepository); ok {
-		observability.StartDBStatsCollector(initCtx, pgRepo.DB(), 15*time.Second)
+		observability.StartDBStatsCollector(metricsCtx, pgRepo.DB(), 15*time.Second)
 	}
 
 	// Если флаг запуска миграций установлен, выполняем миграции
@@ -146,8 +155,6 @@ func main() {
 
 	rabbitHealth := rabbitmq.NewHealthConn(rabbitConn)
 
-	metricsCtx, metricsCancel := context.WithCancel(context.Background())
-	defer metricsCancel()
 	metricsSrv, err := observability.StartMetricsServer(metricsCtx, obsCfg.MetricsAddr)
 	if err != nil {
 		logger.Log.Error("Failed to start metrics server", "error", err)
@@ -191,6 +198,7 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	sig := <-quit
 	logger.Log.Info("shutdown signal received", "signal", sig.String())
+	metricsCancel()
 
 	// Создаем контекст для завершения работы сервера
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

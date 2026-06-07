@@ -3,6 +3,7 @@ package logger
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -50,8 +51,16 @@ func parseLevel(level string) (slog.Level, error) {
 	case "error":
 		return slog.LevelError, nil
 	default:
-		return slog.LevelInfo, nil
+		return slog.LevelInfo, fmt.Errorf("unknown log level %q", level)
 	}
+}
+
+// ctxKey тип для ключа контекста
+type ctxKey struct{}
+
+// WithService сохраняет логер с полем service в context.
+func WithService(ctx context.Context, serviceName string) context.Context {
+	return context.WithValue(ctx, ctxKey{}, Log.With("service", serviceName))
 }
 
 // FromContext возвращает логер с trace_id из context (если span активен).
@@ -59,11 +68,19 @@ func FromContext(ctx context.Context) *slog.Logger {
 	if ctx == nil {
 		return Log
 	}
+
+	base := Log
+	if v := ctx.Value(ctxKey{}); v != nil {
+		if l, ok := v.(*slog.Logger); ok && l != nil {
+			base = l
+		}
+	}
+
 	sc := trace.SpanFromContext(ctx).SpanContext()
 	if !sc.IsValid() {
-		return Log
+		return base
 	}
-	return Log.With(
+	return base.With(
 		"trace_id", sc.TraceID().String(),
 		"span_id", sc.SpanID().String(),
 	)

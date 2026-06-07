@@ -11,7 +11,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 )
 
-func (s *avatarService) putObject(ctx context.Context, bucket, key string, reader io.Reader, size int64, contentType string) (minio.UploadInfo, error) {
+func putObjectTraced(ctx context.Context, client *minio.Client, bucket, key string, r io.Reader, size int64, contentType string) (minio.UploadInfo, error) {
 	ctx, span := otel.Tracer(observability.Tracer()).Start(ctx, "minio.put_object")
 	defer span.End()
 	span.SetAttributes(
@@ -19,9 +19,7 @@ func (s *avatarService) putObject(ctx context.Context, bucket, key string, reade
 		attribute.String("object_key", key),
 		attribute.Int64("file_size", size),
 	)
-	info, err := s.minioClient.PutObject(ctx, bucket, key, reader, size, minio.PutObjectOptions{
-		ContentType: contentType,
-	})
+	info, err := client.PutObject(ctx, bucket, key, r, size, minio.PutObjectOptions{ContentType: contentType})
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
@@ -29,14 +27,14 @@ func (s *avatarService) putObject(ctx context.Context, bucket, key string, reade
 	return info, err
 }
 
-func (s *avatarService) getObject(ctx context.Context, bucket, key string) (*minio.Object, error) {
+func getObjectTraced(ctx context.Context, client *minio.Client, bucket, key string) (*minio.Object, error) {
 	ctx, span := otel.Tracer(observability.Tracer()).Start(ctx, "minio.get_object")
 	defer span.End()
 	span.SetAttributes(
 		attribute.String("bucket", bucket),
 		attribute.String("object_key", key),
 	)
-	obj, err := s.minioClient.GetObject(ctx, bucket, key, minio.GetObjectOptions{})
+	obj, err := client.GetObject(ctx, bucket, key, minio.GetObjectOptions{})
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
@@ -44,47 +42,14 @@ func (s *avatarService) getObject(ctx context.Context, bucket, key string) (*min
 	return obj, err
 }
 
-func (s *workerService) putObject(ctx context.Context, bucket, key string, reader io.Reader, size int64, contentType string) (minio.UploadInfo, error) {
-	ctx, span := otel.Tracer(observability.Tracer()).Start(ctx, "minio.put_object")
-	defer span.End()
-	span.SetAttributes(
-		attribute.String("bucket", bucket),
-		attribute.String("object_key", key),
-		attribute.Int64("file_size", size),
-	)
-	info, err := s.minioClient.PutObject(ctx, bucket, key, reader, size, minio.PutObjectOptions{
-		ContentType: contentType,
-	})
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-	}
-	return info, err
-}
-
-func (s *workerService) getObject(ctx context.Context, bucket, key string) (*minio.Object, error) {
-	ctx, span := otel.Tracer(observability.Tracer()).Start(ctx, "minio.get_object")
-	defer span.End()
-	span.SetAttributes(
-		attribute.String("bucket", bucket),
-		attribute.String("object_key", key),
-	)
-	obj, err := s.minioClient.GetObject(ctx, bucket, key, minio.GetObjectOptions{})
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-	}
-	return obj, err
-}
-
-func (s *workerService) removeObject(ctx context.Context, bucket, key string) error {
+func removeObjectTraced(ctx context.Context, client *minio.Client, bucket, key string) error {
 	ctx, span := otel.Tracer(observability.Tracer()).Start(ctx, "minio.remove_object")
 	defer span.End()
 	span.SetAttributes(
 		attribute.String("bucket", bucket),
 		attribute.String("object_key", key),
 	)
-	err := s.minioClient.RemoveObject(ctx, bucket, key, minio.RemoveObjectOptions{})
+	err := client.RemoveObject(ctx, bucket, key, minio.RemoveObjectOptions{})
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
@@ -105,4 +70,24 @@ func statObject(ctx context.Context, client *minio.Client, bucket, key string) (
 		span.SetStatus(codes.Error, err.Error())
 	}
 	return info, err
+}
+
+func (s *avatarService) putObject(ctx context.Context, bucket, key string, reader io.Reader, size int64, contentType string) (minio.UploadInfo, error) {
+	return putObjectTraced(ctx, s.minioClient, bucket, key, reader, size, contentType)
+}
+
+func (s *avatarService) getObject(ctx context.Context, bucket, key string) (*minio.Object, error) {
+	return getObjectTraced(ctx, s.minioClient, bucket, key)
+}
+
+func (s *workerService) putObject(ctx context.Context, bucket, key string, reader io.Reader, size int64, contentType string) (minio.UploadInfo, error) {
+	return putObjectTraced(ctx, s.minioClient, bucket, key, reader, size, contentType)
+}
+
+func (s *workerService) getObject(ctx context.Context, bucket, key string) (*minio.Object, error) {
+	return getObjectTraced(ctx, s.minioClient, bucket, key)
+}
+
+func (s *workerService) removeObject(ctx context.Context, bucket, key string) error {
+	return removeObjectTraced(ctx, s.minioClient, bucket, key)
 }

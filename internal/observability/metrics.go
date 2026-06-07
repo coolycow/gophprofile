@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coolycow/gophprofile/internal/logger"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -15,7 +16,8 @@ import (
 
 var registry = prometheus.NewRegistry()
 
-func init() {
+// InitMetrics регистрирует runtime-коллекторы Prometheus.
+func InitMetrics() {
 	registry.MustRegister(
 		prometheus.NewGoCollector(),
 		prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}),
@@ -115,7 +117,7 @@ func StartMetricsServer(ctx context.Context, addr string) (*http.Server, error) 
 
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			LoggerFromContext(ctx).Error("metrics server error", "error", err)
+			logger.FromContext(ctx).Error("metrics server error", "error", err)
 		}
 	}()
 

@@ -52,17 +52,26 @@ func main() {
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}
 
+	observability.InitMetrics()
+
 	initCtx := context.Background()
-	if err = observability.InitTracing(initCtx, obsCfg); err != nil {
+	shutdownTracing, err := observability.InitTracing(initCtx, obsCfg)
+	if err != nil {
 		logger.Log.Error("Failed to initialize tracing", "error", err)
 	}
 	defer func() {
+		if shutdownTracing == nil {
+			return
+		}
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := observability.Shutdown(shutdownCtx); err != nil {
+		if err := shutdownTracing(shutdownCtx); err != nil {
 			logger.Log.Error("Failed to shutdown tracing", "error", err)
 		}
 	}()
+
+	metricsCtx, metricsCancel := context.WithCancel(context.Background())
+	defer metricsCancel()
 
 	// Выводим настройки в лог
 	cfg.PrintWorkerConfig()
@@ -82,7 +91,7 @@ func main() {
 	logger.Log.Info("Initialized postgres repository successfully")
 
 	if pgRepo, ok := repo.(*repository.PostgresRepository); ok {
-		observability.StartDBStatsCollector(initCtx, pgRepo.DB(), 15*time.Second)
+		observability.StartDBStatsCollector(metricsCtx, pgRepo.DB(), 15*time.Second)
 	}
 
 	// Если флаг запуска миграций установлен, выполняем миграции
@@ -110,8 +119,6 @@ func main() {
 	// Инициализируем сервис работы с аватарками
 	workerService := service.NewWorkerService(repo, cfg, minioClient)
 
-	metricsCtx, metricsCancel := context.WithCancel(context.Background())
-	defer metricsCancel()
 	metricsSrv, err := observability.StartMetricsServer(metricsCtx, obsCfg.MetricsAddr)
 	if err != nil {
 		logger.Log.Error("Failed to start metrics server", "error", err)
@@ -190,95 +197,93 @@ func runConsumer(ctx context.Context, msgs <-chan amqp.Delivery, workerService s
 				logger.Log.Info("rabbit consumer channel closed")
 				return
 			}
-
-			jobCtx := observability.ExtractAMQPContext(context.Background(), d.Headers)
-			jobCtx, span := otel.Tracer(observability.Tracer()).Start(jobCtx, "rabbitmq.consume")
-			span.SetAttributes(attribute.String("messaging.system", "rabbitmq"))
-
-			job, decErr := rabbitmq.DecodeAvatarJob(d.Body)
-			if decErr != nil {
-				logger.Log.Warn("invalid job payload", "error", decErr, "body", string(d.Body))
-				span.RecordError(decErr)
-				span.SetStatus(codes.Error, decErr.Error())
-				span.End()
-				if nackErr := d.Nack(false, false); nackErr != nil {
-					logger.Log.Error("rabbitmq nack failed", "error", nackErr)
-					return
-				}
-				continue
-			}
-
-			span.SetAttributes(attribute.String("job.type", string(job.Type)))
-
-			logger.Log.Info("received avatar job",
-				"type", string(job.Type),
-				"avatar_id", job.AvatarID,
-				"user_id", job.UserID,
-				"s3_key", job.S3Key,
-				"thumbnail_s3_keys", job.ThumbnailS3Keys,
-				"retry", rabbitmq.HeaderRetryCount(d.Headers),
-			)
-
-			var err error
-			switch job.Type {
-			case rabbitmq.AvatarJobTypeProcess:
-				err = workerService.ProcessAvatar(jobCtx, job.AvatarID)
-			case rabbitmq.AvatarJobTypeDeleteByS3Key:
-				err = workerService.DeleteAvatarByS3Key(jobCtx, job.S3Key, job.ThumbnailS3Keys)
-			default:
-				err = fmt.Errorf("unsupported job type: %s", job.Type)
-			}
-
-			if err != nil {
-				logger.Log.Error("avatar job failed",
-					"type", string(job.Type),
-					"error", err,
-				)
-				span.RecordError(err)
-				span.SetStatus(codes.Error, err.Error())
-				retry := rabbitmq.HeaderRetryCount(d.Headers)
-				if rabbitmq.IsTransientAvatarJobError(err) && retry < rabbitmq.MaxAvatarJobRetries {
-					delay := rabbitmq.RetryBackoffDuration(retry)
-					select {
-					case <-ctx.Done():
-						_ = d.Nack(false, true)
-						span.End()
-						return
-					case <-time.After(delay):
-					}
-					if rerr := rabbitmq.RepublishAvatarJob(jobCtx, pubCh, d.Body, job, retry+1); rerr != nil {
-						logger.Log.Error("republish avatar job failed", "error", rerr)
-						if nackErr := d.Nack(false, false); nackErr != nil {
-							logger.Log.Error("rabbitmq nack failed", "error", nackErr)
-							span.End()
-							return
-						}
-						span.End()
-						continue
-					}
-					if ackErr := d.Ack(false); ackErr != nil {
-						logger.Log.Error("rabbitmq ack failed", "error", ackErr)
-						span.End()
-						return
-					}
-					span.End()
-					continue
-				}
-				if nackErr := d.Nack(false, false); nackErr != nil {
-					logger.Log.Error("rabbitmq nack failed", "error", nackErr)
-					span.End()
-					return
-				}
-				span.End()
-				continue
-			}
-
-			if err := d.Ack(false); err != nil {
-				logger.Log.Error("rabbitmq ack failed", "error", err)
-				span.End()
+			if !processDelivery(ctx, d, workerService, pubCh) {
 				return
 			}
-			span.End()
 		}
 	}
+}
+
+// processDelivery обрабатывает одно сообщение из очереди. false — прекратить цикл потребителя.
+func processDelivery(ctx context.Context, d amqp.Delivery, workerService service.WorkerService, pubCh *amqp.Channel) bool {
+	jobCtx := observability.ExtractAMQPContext(ctx, d.Headers)
+	jobCtx, span := otel.Tracer(observability.Tracer()).Start(jobCtx, "rabbitmq.consume")
+	defer span.End()
+	span.SetAttributes(attribute.String("messaging.system", "rabbitmq"))
+
+	job, decErr := rabbitmq.DecodeAvatarJob(d.Body)
+	if decErr != nil {
+		logger.Log.Warn("invalid job payload", "error", decErr, "body", string(d.Body))
+		span.RecordError(decErr)
+		span.SetStatus(codes.Error, decErr.Error())
+		if nackErr := d.Nack(false, false); nackErr != nil {
+			logger.Log.Error("rabbitmq nack failed", "error", nackErr)
+			return false
+		}
+		return true
+	}
+
+	span.SetAttributes(attribute.String("job.type", string(job.Type)))
+
+	logger.Log.Info("received avatar job",
+		"type", string(job.Type),
+		"avatar_id", job.AvatarID,
+		"user_id", job.UserID,
+		"s3_key", job.S3Key,
+		"thumbnail_s3_keys", job.ThumbnailS3Keys,
+		"retry", rabbitmq.HeaderRetryCount(d.Headers),
+	)
+
+	var err error
+	switch job.Type {
+	case rabbitmq.AvatarJobTypeProcess:
+		err = workerService.ProcessAvatar(jobCtx, job.AvatarID)
+	case rabbitmq.AvatarJobTypeDeleteByS3Key:
+		err = workerService.DeleteAvatarByS3Key(jobCtx, job.S3Key, job.ThumbnailS3Keys)
+	default:
+		err = fmt.Errorf("unsupported job type: %s", job.Type)
+	}
+
+	if err != nil {
+		logger.Log.Error("avatar job failed",
+			"type", string(job.Type),
+			"error", err,
+		)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		retry := rabbitmq.HeaderRetryCount(d.Headers)
+		if rabbitmq.IsTransientAvatarJobError(err) && retry < rabbitmq.MaxAvatarJobRetries {
+			delay := rabbitmq.RetryBackoffDuration(retry)
+			select {
+			case <-ctx.Done():
+				_ = d.Nack(false, true)
+				return false
+			case <-time.After(delay):
+			}
+			if rerr := rabbitmq.RepublishAvatarJob(jobCtx, pubCh, d.Body, job, retry+1); rerr != nil {
+				logger.Log.Error("republish avatar job failed", "error", rerr)
+				if nackErr := d.Nack(false, false); nackErr != nil {
+					logger.Log.Error("rabbitmq nack failed", "error", nackErr)
+					return false
+				}
+				return true
+			}
+			if ackErr := d.Ack(false); ackErr != nil {
+				logger.Log.Error("rabbitmq ack failed", "error", ackErr)
+				return false
+			}
+			return true
+		}
+		if nackErr := d.Nack(false, false); nackErr != nil {
+			logger.Log.Error("rabbitmq nack failed", "error", nackErr)
+			return false
+		}
+		return true
+	}
+
+	if err := d.Ack(false); err != nil {
+		logger.Log.Error("rabbitmq ack failed", "error", err)
+		return false
+	}
+	return true
 }
