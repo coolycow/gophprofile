@@ -22,6 +22,17 @@ func pickMultipartImageFile(c *gin.Context) (*multipart.FileHeader, error) {
 }
 
 // PostAvatarHandler загружает аватарку
+// @Summary Upload avatar
+// @Tags avatars
+// @Accept multipart/form-data
+// @Produce json
+// @Param X-User-ID header string true "User ID"
+// @Param file formData file true "Avatar image"
+// @Success 201 {object} model.AvatarUploadResponse
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Router /api/v1/avatars [post]
+// @Security UserID
 func PostAvatarHandler(srv service.AvatarService, _ *audit.Notifier) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.GetString("user_id")

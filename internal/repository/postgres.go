@@ -14,6 +14,7 @@ import (
 
 	"github.com/coolycow/gophprofile/internal/logger"
 	"github.com/coolycow/gophprofile/internal/model"
+	"github.com/coolycow/gophprofile/internal/resilience"
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/pgx/v5"
@@ -159,7 +160,9 @@ func (r *PostgresRepository) Close() error {
 
 // Ping проверяет доступность хранилища
 func (r *PostgresRepository) Ping(ctx context.Context) error {
-	return r.db.PingContext(ctx)
+	return resilience.ExecuteVoid(resilience.PostgresBreaker, func() error {
+		return r.db.PingContext(ctx)
+	})
 }
 
 ////////////////////////////////////////////////////////////// МЕТОДЫ ДЛЯ РАБОТЫ С ПОЛЬЗОВАТЕЛЯМИ //////////////////////////////////////////////////////////////

@@ -1,0 +1,33 @@
+{{- if .Values.monitoring.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "gophprofile.fullname" . }}-alerts
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gophprofile.labels" . | nindent 4 }}
+    {{- with .Values.monitoring.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: gophprofile
+      rules:
+        - alert: GophProfileHighErrorRate
+          expr: |
+            sum(rate(http_requests_total{job=~".*gophprofile-server.*",status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total{job=~".*gophprofile-server.*"}[5m])) > 0.05
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: High HTTP error rate on GophProfile server
+        - alert: GophProfileNoWorkerConsumers
+          expr: avatar_jobs_processed_total == 0
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: No avatar jobs processed — check worker pods
+{{- end }}

@@ -1,0 +1,129 @@
+basePath: /
+definitions:
+  model.AvatarUploadResponse:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: string
+      status:
+        type: string
+      url:
+        type: string
+      user_id:
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: Microservice for user avatar management.
+  title: GophProfile API
+  version: "1.0"
+paths:
+  /api/v1/avatars:
+    post:
+      consumes:
+      - multipart/form-data
+      parameters:
+      - description: User ID
+        in: header
+        name: X-User-ID
+        required: true
+        type: string
+      - description: Avatar image
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/model.AvatarUploadResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - UserID: []
+      summary: Upload avatar
+      tags:
+      - avatars
+  /api/v1/avatars/{avatar_id}:
+    get:
+      parameters:
+      - description: Avatar UUID
+        in: path
+        name: avatar_id
+        required: true
+        type: string
+      - description: Thumbnail size
+        enum:
+        - 100x100
+        - 300x300
+        - original
+        in: query
+        name: size
+        type: string
+      - description: Output format
+        enum:
+        - jpeg
+        - png
+        - webp
+        in: query
+        name: format
+        type: string
+      produces:
+      - image/jpeg
+      - image/png
+      - image/webp
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get avatar by ID
+      tags:
+      - avatars
+  /health/ready:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Readiness check
+      tags:
+      - health
+securityDefinitions:
+  UserID:
+    in: header
+    name: X-User-ID
+    type: apiKey
+swagger: "2.0"

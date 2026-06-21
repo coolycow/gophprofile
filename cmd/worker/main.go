@@ -225,6 +225,9 @@ func processDelivery(ctx context.Context, d amqp.Delivery, workerService service
 
 	span.SetAttributes(attribute.String("job.type", string(job.Type)))
 
+	jobCtx, jobCancel := context.WithTimeout(jobCtx, 5*time.Minute)
+	defer jobCancel()
+
 	logger.Log.Info("received avatar job",
 		"type", string(job.Type),
 		"avatar_id", job.AvatarID,

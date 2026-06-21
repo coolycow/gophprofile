@@ -6,6 +6,7 @@ import (
 
 	"github.com/coolycow/gophprofile/internal/config"
 	"github.com/coolycow/gophprofile/internal/repository"
+	"github.com/coolycow/gophprofile/internal/resilience"
 	"github.com/minio/minio-go/v7"
 )
 
@@ -50,7 +51,9 @@ func (s *healthService) CheckDatabaseStatus(ctx context.Context) error {
 
 // CheckMinioStatus проверяет доступность MinIO
 func (s *healthService) CheckMinioStatus(ctx context.Context) error {
-	exists, err := s.minioClient.BucketExists(ctx, s.cfg.MinioBucketName)
+	exists, err := resilience.Execute(resilience.MinioBreaker, func() (bool, error) {
+		return s.minioClient.BucketExists(ctx, s.cfg.MinioBucketName)
+	})
 
 	if err != nil {
 		return err

@@ -24,6 +24,15 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
+// @title           GophProfile API
+// @version         1.0
+// @description     Microservice for user avatar management.
+// @host            localhost:8080
+// @BasePath        /
+// @securityDefinitions.apikey UserID
+// @in header
+// @name X-User-ID
+
 var (
 	buildVersion string
 	buildDate    string
@@ -132,15 +141,14 @@ func main() {
 		logger.Log.Error("Failed to connect to RabbitMQ", "error", err)
 		os.Exit(1)
 	}
-	defer rabbitConn.Close()
 
 	// Создание канала для работы с RabbitMQ
 	ch, err := rabbitConn.Channel()
 	if err != nil {
+		_ = rabbitConn.Close()
 		logger.Log.Error("Failed to open a channel", "error", err)
 		os.Exit(1)
 	}
-	defer ch.Close()
 
 	// Объявление exchange, очереди и привязок (topic)
 	queue, err := rabbitmq.EnsureAvatarsTopology(ch)
@@ -204,13 +212,8 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Параллельно завершаем HTTP и gRPC.
 	var shutdownWg sync.WaitGroup
-	shutdownWg.Add(2)
-
-	go func() {
-		defer shutdownWg.Done()
-	}()
+	shutdownWg.Add(1)
 
 	go func() {
 		defer shutdownWg.Done()
@@ -220,4 +223,11 @@ func main() {
 	}()
 
 	shutdownWg.Wait()
+
+	if err := ch.Close(); err != nil {
+		logger.Log.Warn("Failed to close RabbitMQ channel", "error", err)
+	}
+	if err := rabbitConn.Close(); err != nil {
+		logger.Log.Warn("Failed to close RabbitMQ connection", "error", err)
+	}
 }

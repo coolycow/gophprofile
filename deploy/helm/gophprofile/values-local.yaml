@@ -1,0 +1,40 @@
+server:
+  replicaCount: 2
+  image:
+    pullPolicy: Never
+
+worker:
+  replicaCount: 1
+  image:
+    pullPolicy: Never
+
+client:
+  image:
+    pullPolicy: Never
+
+ingress:
+  host: gophprofile.local
+  className: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+
+networkPolicy:
+  enabled: false
+
+config:
+  otelEnabled: "false"
+
+secrets:
+  secretKey: "01234567890123456789012345678901"
+
+hpa:
+  server:
+    minReplicas: 2
+    maxReplicas: 5
+  worker:
+    minReplicas: 1
+    maxReplicas: 3
+
+monitoring:
+  serviceMonitor:
+    enabled: false

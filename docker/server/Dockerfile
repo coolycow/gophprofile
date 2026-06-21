@@ -21,7 +21,11 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath \
     -ldflags="-s -w -X main.buildVersion=${BUILD_VERSION} -X main.buildDate=${BUILD_DATE} -X main.buildCommit=${GIT_COMMIT}" \
-    -o /out/server "${GO_SERVER_MAIN_PATH}"
+    -o /out/server "${GO_SERVER_MAIN_PATH}" && \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath \
+    -ldflags="-s -w" \
+    -o /out/migrate ./cmd/migrate
 
 FROM alpine:3.21
 
@@ -29,6 +33,7 @@ RUN apk add --no-cache ca-certificates tzdata \
     && adduser -D -H -u 65532 appuser
 
 COPY --from=builder /out/server /usr/local/bin/server
+COPY --from=builder /out/migrate /usr/local/bin/migrate
 
 # Не в WORKDIR /app: том compose может монтироваться на /app и скрывать файлы образа.
 COPY migrations /usr/local/share/gophprofile/migrations
