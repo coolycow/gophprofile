@@ -18,6 +18,9 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/XSAM/otelsql"
+	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
 // PostgresRepository представляет репозиторий для хранения URL
@@ -117,7 +120,9 @@ func (r *PostgresRepository) RunMigrations() error {
 // NewPostgresRepository создает новый экземпляр URLRepository
 func NewPostgresRepository(DSN string) (*PostgresRepository, error) {
 	// Открываем соединение с базой данных
-	db, err := sql.Open("pgx", DSN)
+	db, err := otelsql.Open("pgx", DSN,
+		otelsql.WithAttributes(semconv.DBSystemPostgreSQL),
+	)
 
 	// Ошибка открытия соединения
 	if err != nil {
@@ -136,6 +141,11 @@ func NewPostgresRepository(DSN string) (*PostgresRepository, error) {
 	repo := &PostgresRepository{db: db}
 
 	return repo, nil
+}
+
+// DB возвращает *sql.DB для метрик и healthcheck.
+func (r *PostgresRepository) DB() *sql.DB {
+	return r.db
 }
 
 // //////////////////////////////////////////////////////////// МЕТОДЫ ДЛЯ РАБОТЫ С БАЗОЙ ДАННЫХ //////////////////////////////////////////////////////////////

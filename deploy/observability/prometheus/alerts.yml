@@ -1,0 +1,37 @@
+groups:
+  - name: gophprofile
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(avatars_uploads_total{status="error"}[5m]))
+            /
+            sum(rate(avatars_uploads_total[5m]))
+          ) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Высокий процент ошибок при загрузке аватаров"
+
+      - alert: HighResponseTime
+        expr: |
+          histogram_quantile(0.95, sum(rate(avatars_upload_duration_seconds_bucket[5m])) by (le)) > 5
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Высокое время загрузки аватаров (p95 > 5s)"
+
+      - alert: HTTPHighErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Высокий процент HTTP 5xx ошибок"

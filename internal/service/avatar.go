@@ -11,14 +11,17 @@ import (
 	"mime/multipart"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/coolycow/gophprofile/internal/config"
 	profileError "github.com/coolycow/gophprofile/internal/error"
 	"github.com/coolycow/gophprofile/internal/logger"
 	"github.com/coolycow/gophprofile/internal/model"
+	"github.com/coolycow/gophprofile/internal/observability"
 	"github.com/coolycow/gophprofile/internal/repository"
 	"github.com/minio/minio-go/v7"
-	"go.uber.org/zap"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // AvatarJobPublisher асинхронно ставит задание на обработку аватара в RabbitMQ.
@@ -66,6 +69,20 @@ func NewAvatarService(cfg *config.ConfigServer, repo repository.GophProfileRepos
 
 // UploadAvatar загружает аватарку
 func (s *avatarService) UploadAvatar(ctx context.Context, userID string, file io.Reader, fileHeader *multipart.FileHeader) (*model.Avatar, error) {
+	start := time.Now()
+	status := "error"
+	var uploadedSize int64
+	defer func() {
+		observability.ObserveUpload(userID, status, time.Since(start), uploadedSize)
+	}()
+
+	ctx, span := otel.Tracer(observability.Tracer()).Start(ctx, "upload_avatar")
+	defer span.End()
+	span.SetAttributes(
+		attribute.String("user_id", userID),
+		attribute.String("file_name", fileHeader.Filename),
+	)
+
 	// Получаем максимальный размер файла
 	maxB := s.cfg.MaxFileSize
 	if maxB < 1 {
@@ -136,10 +153,15 @@ func (s *avatarService) UploadAvatar(ctx context.Context, userID string, file io
 	objectName := fmt.Sprintf("%s/%s", userID, fileHeader.Filename)
 	contentType := mediaType
 	n := int64(len(reader))
+	span.SetAttributes(attribute.Int64("file_size", n))
 
-	info, err := s.minioClient.PutObject(ctx, bucketName, objectName, bytes.NewReader(reader), n, minio.PutObjectOptions{
-		ContentType: contentType,
-	})
+	logger.FromContext(ctx).Info("uploading avatar",
+		"user_id", userID,
+		"file_size", n,
+		"mime_type", mediaType,
+	)
+
+	info, err := s.putObject(ctx, bucketName, objectName, bytes.NewReader(reader), n, contentType)
 
 	// Если ошибка, возвращаем ошибку
 	if err != nil {
@@ -182,7 +204,7 @@ func (s *avatarService) UploadAvatar(ctx context.Context, userID string, file io
 	if s.jobPublisher != nil {
 		// Старая аватарка уже снята с записи в БД внутри UploadAvatar; ставим задачу на очистку S3 и т.п.
 		if currentAvatar != nil && currentAvatar.S3Key != avatar.S3Key {
-			logger.Log.Info("Enqueuing old avatar deletion", zap.String("s3_key", currentAvatar.S3Key))
+			logger.Log.Info("Enqueuing old avatar deletion", "s3_key", currentAvatar.S3Key)
 			if pubErr := s.jobPublisher.PublishAvatarDeletionByS3KeyJob(ctx, currentAvatar.S3Key, []string(currentAvatar.ThumbnailS3Keys)); pubErr != nil {
 				return nil, profileError.CustomError{
 					Message:    fmt.Sprintf("failed to enqueue old avatar deletion: %s", pubErr),
@@ -200,6 +222,8 @@ func (s *avatarService) UploadAvatar(ctx context.Context, userID string, file io
 		}
 	}
 
+	status = "success"
+	uploadedSize = info.Size
 	return avatar, nil
 }
 
@@ -218,7 +242,7 @@ func (s *avatarService) OpenAvatarObject(ctx context.Context, avatar *model.Avat
 	if avatar == nil || strings.TrimSpace(avatar.S3Key) == "" {
 		return nil, fmt.Errorf("avatar or s3 key is empty")
 	}
-	return s.minioClient.GetObject(ctx, s.cfg.MinioBucketName, avatar.S3Key, minio.GetObjectOptions{})
+	return s.getObject(ctx, s.cfg.MinioBucketName, avatar.S3Key)
 }
 
 // DeleteAvatarByID удаляет аватарку по ID, если callerUserID совпадает с владельцем.

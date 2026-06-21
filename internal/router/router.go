@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/contrib/gzip"
 	"github.com/gin-gonic/gin"
 	"github.com/minio/minio-go/v7"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 )
 
 // setGinModeFromEnvOrConfig устанавливает режим Gin из окружения или конфига
@@ -47,6 +48,8 @@ func NewRouter(
 	// gin.Default() даёт встроенный Logger + Recovery и шумит в лог; свой лог — RequestLogger.
 	router := gin.New()
 	router.Use(gin.Recovery())
+
+	router.Use(otelgin.Middleware("gophprofile-server"))
 
 	router.Use(middleware.CORS(cfg))
 	router.Use(middleware.RateLimit(cfg))

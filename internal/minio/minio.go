@@ -6,7 +6,6 @@ import (
 	"github.com/coolycow/gophprofile/internal/logger"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
-	"go.uber.org/zap"
 )
 
 func NewMinioClient(endpoint, accessKey, secretKey, bucketName string, useSSL bool) (*minio.Client, error) {
@@ -16,7 +15,8 @@ func NewMinioClient(endpoint, accessKey, secretKey, bucketName string, useSSL bo
 		Secure: useSSL,
 	})
 	if err != nil {
-		logger.Log.Fatal("Failed to initialize minio client", zap.Error(err))
+		logger.Log.Error("Failed to initialize minio client", "error", err)
+		return nil, err
 	}
 
 	logger.Log.Info("Initialized minio client successfully")
@@ -27,9 +27,10 @@ func NewMinioClient(endpoint, accessKey, secretKey, bucketName string, useSSL bo
 		// Check to see if we already own this bucket (which happens if you run this twice)
 		exists, errBucketExists := minioClient.BucketExists(context.Background(), bucketName)
 		if errBucketExists == nil && exists {
-			logger.Log.Info("We already own %s", zap.String("bucket", bucketName))
+			logger.Log.Info("We already own bucket", "bucket", bucketName)
 		} else {
-			logger.Log.Fatal("Failed to create bucket", zap.Error(err))
+			logger.Log.Error("Failed to create bucket", "error", err)
+			return nil, err
 		}
 	}
 

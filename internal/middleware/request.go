@@ -1,11 +1,13 @@
 package middleware
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/coolycow/gophprofile/internal/logger"
+	"github.com/coolycow/gophprofile/internal/observability"
 	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // RequestLogger — middleware-логер для входящих HTTP-запросов.
@@ -19,15 +21,29 @@ func RequestLogger() gin.HandlerFunc {
 
 		// Вычисляем длительность обработки запроса
 		duration := time.Since(start)
+		status := c.Writer.Status()
+		route := c.FullPath()
+		if route == "" {
+			route = c.Request.URL.Path
+		}
+		statusLabel := strconv.Itoa(status)
+
+		observability.HTTPRequestsTotal.WithLabelValues(c.Request.Method, route, statusLabel).Inc()
+		observability.HTTPRequestDuration.WithLabelValues(c.Request.Method, route, statusLabel).Observe(duration.Seconds())
+
+		attrs := []any{
+			"uri", c.Request.RequestURI,
+			"method", c.Request.Method,
+			"params", c.Request.URL.Query().Encode(),
+			"duration", duration.String(),
+			"status", status,
+			"size", c.Writer.Size(),
+		}
+		if sc := trace.SpanFromContext(c.Request.Context()).SpanContext(); sc.IsValid() {
+			attrs = append(attrs, "trace_id", sc.TraceID().String())
+		}
 
 		// Логируем информацию о запросе и ответе
-		logger.Log.Info("HTTP request",
-			zap.String("uri", c.Request.RequestURI),
-			zap.String("method", c.Request.Method),
-			zap.String("params", c.Request.URL.Query().Encode()),
-			zap.Duration("duration", duration),
-			zap.Int("status", c.Writer.Status()),
-			zap.Int("size", c.Writer.Size()),
-		)
+		logger.Log.Info("HTTP request", attrs...)
 	}
 }

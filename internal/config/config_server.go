@@ -56,6 +56,8 @@ type ConfigServer struct {
 	RateLimitRPS float64 `json:"rate_limit_rps,omitempty"`
 	// RateLimitBurst — размер «ведра» burst для rate limit.
 	RateLimitBurst int `json:"rate_limit_burst,omitempty"`
+
+	Observability ObservabilityConfig
 }
 
 // fileConfig — JSON-файл; указатели задают поля, явно присутствующие в файле.
@@ -89,6 +91,7 @@ type fileConfigServer struct {
 	RabbitMQUser          *string `json:"rabbitmq_user"`            // Пользователь RabbitMQ
 	RabbitMQPassword      *string `json:"rabbitmq_password"`        // Пароль RabbitMQ
 	RabbitMQVHost         *string `json:"rabbitmq_vhost"`           // Виртуальный хост
+	fileObservabilityConfig
 }
 
 // GetServerAddress возвращает полный адрес сервера для его запуска
@@ -112,6 +115,8 @@ func (c *ConfigServer) PrintServerConfig() {
 	fmt.Fprintf(&b, "MinioEndpoint=%s MinioAccessKey=%s MinioSecretKey=%s MinioBucketName=%s MinioUseSSL=%t MinioPublicBaseURL=%s; ", c.MinioEndpoint, c.MinioAccessKey, redactSecret(c.MinioSecretKey), c.MinioBucketName, c.MinioUseSSL, c.MinioPublicBaseURL)
 	fmt.Fprintf(&b, "RabbitMQHost=%s RabbitMQPort=%d RabbitMQUser=%s RabbitMQPassword=%s RabbitMQVHost=%s; ", c.RabbitMQHost, c.RabbitMQPort, c.RabbitMQUser, redactSecret(c.RabbitMQPassword), c.RabbitMQVHost)
 	fmt.Fprintf(&b, "CORSAllowedOrigins=%s RateLimitEnabled=%t RateLimitRPS=%.2f RateLimitBurst=%d; ", c.CORSAllowedOrigins, c.RateLimitEnabled, c.RateLimitRPS, c.RateLimitBurst)
+	fmt.Fprintf(&b, "OtelEnabled=%t OtelEndpoint=%s OtelServiceName=%s MetricsAddr=%s LogFormat=%s; ",
+		c.Observability.OtelEnabled, c.Observability.OtelEndpoint, c.Observability.OtelServiceName, c.Observability.MetricsAddr, c.Observability.LogFormat)
 	// Выводим настройки в лог
 	logger.Log.Info(b.String())
 }
@@ -330,6 +335,8 @@ func applyEnvToConfigServer(config *ConfigServer, skipConfigFromEnv bool) (*Conf
 		}
 	}
 
+	applyObservabilityEnv(&config.Observability)
+
 	return config, nil
 }
 
@@ -446,6 +453,7 @@ func defaultConfigServer() ConfigServer {
 		RateLimitEnabled:      true,
 		RateLimitRPS:          30,
 		RateLimitBurst:        60,
+		Observability:         defaultObservabilityConfig(),
 	}
 }
 
@@ -549,6 +557,7 @@ func mergeConfigServerFromFile(cfg *ConfigServer, path string) error {
 	if fc.RabbitMQVHost != nil {
 		cfg.RabbitMQVHost = *fc.RabbitMQVHost
 	}
+	mergeObservabilityFromFile(&cfg.Observability, &fc.fileObservabilityConfig)
 	return nil
 }
 
