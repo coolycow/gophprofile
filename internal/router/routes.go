@@ -10,6 +10,7 @@ import (
 	"github.com/coolycow/gophprofile/internal/middleware"
 	"github.com/coolycow/gophprofile/internal/observer/audit"
 	"github.com/coolycow/gophprofile/internal/repository"
+	"github.com/coolycow/gophprofile/internal/resilience"
 	"github.com/coolycow/gophprofile/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/minio/minio-go/v7"
@@ -39,10 +40,11 @@ func setupRoutes(
 	minioClient *minio.Client,
 	avatarJobs service.AvatarJobPublisher,
 	rabbitMQConn service.RabbitMQHealthConn,
+	breakers *resilience.Breakers,
 ) {
 	// Инициализация сервисов
-	avatarService := service.NewAvatarService(cfg, repo, minioClient, avatarJobs)
-	healthService := service.NewHealthService(repo, cfg, minioClient, rabbitMQConn)
+	avatarService := service.NewAvatarService(cfg, repo, minioClient, avatarJobs, breakers.Minio)
+	healthService := service.NewHealthService(repo, cfg, minioClient, rabbitMQConn, breakers.Minio)
 	userService := service.NewUserService(cfg, repo)
 
 	// Probes для Kubernetes и обратная совместимость

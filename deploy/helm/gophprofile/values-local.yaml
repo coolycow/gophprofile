@@ -25,7 +25,12 @@ config:
   otelEnabled: "false"
 
 secrets:
+  # Локальные dev-значения; в values.yaml секреты пустые — required сработает без --set
   secretKey: "01234567890123456789012345678901"
+  databaseDSN: "host=postgres.database.svc.cluster.local port=5432 user=gophprofile password=gophprofile dbname=gophprofile sslmode=disable"
+  minioAccessKey: gophprofile
+  minioSecretKey: gophprofile
+  rabbitmqPassword: gophprofile
 
 hpa:
   server:

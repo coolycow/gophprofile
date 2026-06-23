@@ -27,8 +27,12 @@ spec:
           imagePullPolicy: {{ .Values.server.image.pullPolicy }}
           command: ["migrate"]
           env:
+            # DSN из Secret — не попадает в plain-text spec Job'а в etcd
             - name: DATABASE_DSN
-              value: {{ required "secrets.databaseDSN is required" .Values.secrets.databaseDSN | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "gophprofile.fullname" . }}-secrets
+                  key: DATABASE_DSN
             - name: MIGRATIONS_PATH
               value: /usr/local/share/gophprofile/migrations
           securityContext:

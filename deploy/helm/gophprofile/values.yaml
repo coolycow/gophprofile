@@ -89,12 +89,12 @@ config:
   swaggerEnabled: "false"
 
 secrets:
-  # 32-символьный ключ для JWT; замените в production!
-  secretKey: "01234567890123456789012345678901"
-  databaseDSN: "host=postgres.database.svc.cluster.local port=5432 user=gophprofile password=gophprofile dbname=gophprofile sslmode=disable"
-  minioAccessKey: gophprofile
-  minioSecretKey: gophprofile
-  rabbitmqPassword: gophprofile
+  # Задайте при установке (--set / -f); required в шаблоне secret.yaml не даст установить без значений
+  secretKey: ""
+  databaseDSN: ""
+  minioAccessKey: ""
+  minioSecretKey: ""
+  rabbitmqPassword: ""
 
 securityContext:
   runAsNonRoot: true

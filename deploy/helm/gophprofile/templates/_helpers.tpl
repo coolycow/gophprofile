@@ -73,3 +73,11 @@ envFrom:
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{- define "gophprofile.secret.stringData" -}}
+SECRET_KEY: {{ required "secrets.secretKey is required (32 chars)" .Values.secrets.secretKey | quote }}
+DATABASE_DSN: {{ required "secrets.databaseDSN is required" .Values.secrets.databaseDSN | quote }}
+MINIO_ACCESS_KEY: {{ .Values.secrets.minioAccessKey | quote }}
+MINIO_SECRET_KEY: {{ .Values.secrets.minioSecretKey | quote }}
+RABBITMQ_PASSWORD: {{ .Values.secrets.rabbitmqPassword | quote }}
+{{- end }}

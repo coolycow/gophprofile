@@ -21,12 +21,14 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/XSAM/otelsql"
+	"github.com/sony/gobreaker"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
 // PostgresRepository представляет репозиторий для хранения URL
 type PostgresRepository struct {
-	db *sql.DB
+	db      *sql.DB
+	breaker *gobreaker.CircuitBreaker
 }
 
 // checkTableExists проверяет, существует ли таблица
@@ -118,8 +120,9 @@ func (r *PostgresRepository) RunMigrations() error {
 	return nil
 }
 
-// NewPostgresRepository создает новый экземпляр URLRepository
-func NewPostgresRepository(DSN string) (*PostgresRepository, error) {
+// NewPostgresRepository создает новый экземпляр URLRepository.
+// breaker передаётся снаружи; nil — вызовы без circuit breaker.
+func NewPostgresRepository(DSN string, breaker *gobreaker.CircuitBreaker) (*PostgresRepository, error) {
 	// Открываем соединение с базой данных
 	db, err := otelsql.Open("pgx", DSN,
 		otelsql.WithAttributes(semconv.DBSystemPostgreSQL),
@@ -139,7 +142,7 @@ func NewPostgresRepository(DSN string) (*PostgresRepository, error) {
 		return nil, err
 	}
 
-	repo := &PostgresRepository{db: db}
+	repo := &PostgresRepository{db: db, breaker: breaker}
 
 	return repo, nil
 }
@@ -160,7 +163,7 @@ func (r *PostgresRepository) Close() error {
 
 // Ping проверяет доступность хранилища
 func (r *PostgresRepository) Ping(ctx context.Context) error {
-	return resilience.ExecuteVoid(resilience.PostgresBreaker, func() error {
+	return resilience.ExecuteVoid(r.breaker, func() error {
 		return r.db.PingContext(ctx)
 	})
 }

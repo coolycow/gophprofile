@@ -8,6 +8,7 @@ import (
 	"github.com/coolycow/gophprofile/internal/repository"
 	"github.com/coolycow/gophprofile/internal/resilience"
 	"github.com/minio/minio-go/v7"
+	"github.com/sony/gobreaker"
 )
 
 const avatarJobsQueueName = "gophprofile.avatars"
@@ -28,19 +29,21 @@ type RabbitMQHealthConn interface {
 
 // healthService реализация HealthService
 type healthService struct {
-	repo        repository.GophProfileRepository
-	cfg         *config.ConfigServer
-	minioClient *minio.Client
-	rabbitMQ    RabbitMQHealthConn
+	repo         repository.GophProfileRepository
+	cfg          *config.ConfigServer
+	minioClient  *minio.Client
+	rabbitMQ     RabbitMQHealthConn
+	minioBreaker *gobreaker.CircuitBreaker
 }
 
 // NewHealthService инициализация HealthService. rabbitMQ может быть nil — проверки брокера/воркера пропускаются.
-func NewHealthService(repo repository.GophProfileRepository, cfg *config.ConfigServer, minioClient *minio.Client, rabbitMQ RabbitMQHealthConn) HealthService {
+func NewHealthService(repo repository.GophProfileRepository, cfg *config.ConfigServer, minioClient *minio.Client, rabbitMQ RabbitMQHealthConn, minioBreaker *gobreaker.CircuitBreaker) HealthService {
 	return &healthService{
-		repo:        repo,
-		cfg:         cfg,
-		minioClient: minioClient,
-		rabbitMQ:    rabbitMQ,
+		repo:         repo,
+		cfg:          cfg,
+		minioClient:  minioClient,
+		rabbitMQ:     rabbitMQ,
+		minioBreaker: minioBreaker,
 	}
 }
 
@@ -51,7 +54,7 @@ func (s *healthService) CheckDatabaseStatus(ctx context.Context) error {
 
 // CheckMinioStatus проверяет доступность MinIO
 func (s *healthService) CheckMinioStatus(ctx context.Context) error {
-	exists, err := resilience.Execute(resilience.MinioBreaker, func() (bool, error) {
+	exists, err := resilience.Execute(s.minioBreaker, func() (bool, error) {
 		return s.minioClient.BucketExists(ctx, s.cfg.MinioBucketName)
 	})
 

@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 	"github.com/coolycow/gophprofile/internal/observability"
 	"github.com/coolycow/gophprofile/internal/rabbitmq"
 	"github.com/coolycow/gophprofile/internal/repository"
+	"github.com/coolycow/gophprofile/internal/resilience"
 	"github.com/coolycow/gophprofile/internal/service"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go.opentelemetry.io/otel"
@@ -54,6 +57,12 @@ func main() {
 
 	observability.InitMetrics()
 
+	// Circuit breaker'ы создаём при старте и передаём в компоненты явно.
+	breakers := resilience.NewBreakers()
+
+	// Флаг для health probe: readiness/liveness проверяют регистрацию consumer'а, а не /metrics.
+	var consumerReady atomic.Bool
+
 	initCtx := context.Background()
 	shutdownTracing, err := observability.InitTracing(initCtx, obsCfg)
 	if err != nil {
@@ -82,7 +91,7 @@ func main() {
 	}
 
 	var repo repository.GophProfileRepository
-	repo, err = repository.NewPostgresRepository(cfg.DatabaseDSN)
+	repo, err = repository.NewPostgresRepository(cfg.DatabaseDSN, breakers.Postgres)
 
 	if err != nil {
 		log.Fatalf("Failed to initialize postgres repository: %v", err)
@@ -117,9 +126,26 @@ func main() {
 	}
 
 	// Инициализируем сервис работы с аватарками
-	workerService := service.NewWorkerService(repo, cfg, minioClient)
+	workerService := service.NewWorkerService(repo, cfg, minioClient, breakers.Minio)
 
-	metricsSrv, err := observability.StartMetricsServer(metricsCtx, obsCfg.MetricsAddr)
+	metricsSrv, err := observability.StartMetricsServer(metricsCtx, obsCfg.MetricsAddr, func(mux *http.ServeMux) {
+		// Health probe для воркера: проверяем регистрацию consumer'а, а не только /metrics
+		mux.HandleFunc("/health/live", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"status":"alive"}`))
+		})
+		mux.HandleFunc("/health/ready", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			if !consumerReady.Load() {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(`{"consumer":"not registered"}`))
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"consumer":"ok"}`))
+		})
+	})
 	if err != nil {
 		logger.Log.Error("Failed to start metrics server", "error", err)
 		os.Exit(1)
@@ -173,6 +199,7 @@ func main() {
 		logger.Log.Error("Failed to register rabbit consumer", "error", err)
 		os.Exit(1)
 	}
+	consumerReady.Store(true)
 
 	// Завершение работы потребителя
 	go func() {

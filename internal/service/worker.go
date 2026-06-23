@@ -16,6 +16,7 @@ import (
 	"github.com/coolycow/gophprofile/internal/observability"
 	"github.com/coolycow/gophprofile/internal/repository"
 	"github.com/minio/minio-go/v7"
+	"github.com/sony/gobreaker"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -42,17 +43,19 @@ type WorkerService interface {
 
 // Реализация сервисного слоя
 type workerService struct {
-	repo        repository.GophProfileRepository
-	cfg         *config.ConfigWorker
-	minioClient *minio.Client
+	repo         repository.GophProfileRepository
+	cfg          *config.ConfigWorker
+	minioClient  *minio.Client
+	minioBreaker *gobreaker.CircuitBreaker
 }
 
 // NewWorkerService создаёт сервис воркера (асинхронная обработка после HTTP).
-func NewWorkerService(repo repository.GophProfileRepository, cfg *config.ConfigWorker, minioClient *minio.Client) WorkerService {
+func NewWorkerService(repo repository.GophProfileRepository, cfg *config.ConfigWorker, minioClient *minio.Client, minioBreaker *gobreaker.CircuitBreaker) WorkerService {
 	return &workerService{
-		repo:        repo,
-		cfg:         cfg,
-		minioClient: minioClient,
+		repo:         repo,
+		cfg:          cfg,
+		minioClient:  minioClient,
+		minioBreaker: minioBreaker,
 	}
 }
 

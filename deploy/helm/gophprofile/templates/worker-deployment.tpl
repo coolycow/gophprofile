@@ -48,14 +48,15 @@ spec:
           resources:
             {{- toYaml .Values.worker.resources | nindent 12 }}
           livenessProbe:
+            # /health/ready проверкает регистрацию consumer'а, а не только HTTP /metrics
             httpGet:
-              path: /metrics
+              path: /health/ready
               port: metrics
             initialDelaySeconds: 30
             periodSeconds: 15
           readinessProbe:
             httpGet:
-              path: /metrics
+              path: /health/ready
               port: metrics
             initialDelaySeconds: 10
             periodSeconds: 10

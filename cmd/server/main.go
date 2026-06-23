@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
@@ -19,6 +18,7 @@ import (
 	"github.com/coolycow/gophprofile/internal/observer/audit"
 	"github.com/coolycow/gophprofile/internal/rabbitmq"
 	"github.com/coolycow/gophprofile/internal/repository"
+	"github.com/coolycow/gophprofile/internal/resilience"
 	"github.com/coolycow/gophprofile/internal/router"
 	"github.com/coolycow/gophprofile/internal/service"
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -65,6 +65,9 @@ func main() {
 
 	observability.InitMetrics()
 
+	// Circuit breaker'ы создаём при старте и передаём в компоненты явно.
+	breakers := resilience.NewBreakers()
+
 	initCtx := context.Background()
 	shutdownTracing, err := observability.InitTracing(initCtx, obsCfg)
 	if err != nil {
@@ -93,7 +96,7 @@ func main() {
 	}
 
 	var repo repository.GophProfileRepository
-	repo, err = repository.NewPostgresRepository(cfg.DatabaseDSN)
+	repo, err = repository.NewPostgresRepository(cfg.DatabaseDSN, breakers.Postgres)
 
 	if err != nil {
 		log.Fatalf("Failed to initialize postgres repository: %v", err)
@@ -159,11 +162,11 @@ func main() {
 	logger.Log.Info("Declared RabbitMQ topology", "queue", queue.Name)
 
 	// Создание издателя заданий
-	avatarJobPublisher := rabbitmq.NewAvatarJobPublisher(ch)
+	avatarJobPublisher := rabbitmq.NewAvatarJobPublisher(ch, breakers.RabbitMQ)
 
 	rabbitHealth := rabbitmq.NewHealthConn(rabbitConn)
 
-	metricsSrv, err := observability.StartMetricsServer(metricsCtx, obsCfg.MetricsAddr)
+	metricsSrv, err := observability.StartMetricsServer(metricsCtx, obsCfg.MetricsAddr, nil)
 	if err != nil {
 		logger.Log.Error("Failed to start metrics server", "error", err)
 		os.Exit(1)
@@ -175,7 +178,7 @@ func main() {
 	}()
 
 	// Инициализируем роутер
-	r := router.NewRouter(cfg, repo, auditNotifier, minioClient, avatarJobPublisher, rabbitHealth)
+	r := router.NewRouter(cfg, repo, auditNotifier, minioClient, avatarJobPublisher, rabbitHealth, breakers)
 
 	// Получаем адрес сервера из настроек и запускаем сервер
 	serverAddress := cfg.GetServerAddress()
@@ -186,6 +189,10 @@ func main() {
 		Addr:    serverAddress,
 		Handler: r,
 	}
+
+	// Graceful shutdown через NotifyContext — как в worker.
+	runCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	defer stop()
 
 	// Запускаем сервер
 	go func() {
@@ -201,28 +208,16 @@ func main() {
 		}
 	}()
 
-	// Ожидаем сигнал завершения
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-	sig := <-quit
-	logger.Log.Info("shutdown signal received", "signal", sig.String())
+	<-runCtx.Done()
+	logger.Log.Info("shutdown signal received", "error", runCtx.Err())
 	metricsCancel()
 
-	// Создаем контекст для завершения работы сервера
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	var shutdownWg sync.WaitGroup
-	shutdownWg.Add(1)
-
-	go func() {
-		defer shutdownWg.Done()
-		if shutdownErr := srv.Shutdown(shutdownCtx); shutdownErr != nil {
-			logger.Log.Error("graceful shutdown failed", "error", shutdownErr)
-		}
-	}()
-
-	shutdownWg.Wait()
+	if shutdownErr := srv.Shutdown(shutdownCtx); shutdownErr != nil {
+		logger.Log.Error("graceful shutdown failed", "error", shutdownErr)
+	}
 
 	if err := ch.Close(); err != nil {
 		logger.Log.Warn("Failed to close RabbitMQ channel", "error", err)

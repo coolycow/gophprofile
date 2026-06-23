@@ -13,7 +13,7 @@ func main() {
 		log.Fatal("DATABASE_DSN is required")
 	}
 
-	repo, err := repository.NewPostgresRepository(dsn)
+	repo, err := repository.NewPostgresRepository(dsn, nil)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}

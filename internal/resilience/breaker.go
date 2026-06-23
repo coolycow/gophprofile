@@ -10,12 +10,22 @@ import (
 // ErrCircuitOpen возвращается, когда circuit breaker открыт.
 var ErrCircuitOpen = errors.New("service temporarily unavailable: circuit breaker open")
 
-// Breakers для внешних зависимостей.
-var (
-	MinioBreaker    = NewBreaker("minio")
-	RabbitMQBreaker = NewBreaker("rabbitmq")
-	PostgresBreaker = NewBreaker("postgres")
-)
+// Breakers — набор circuit breaker'ов для внешних зависимостей.
+// Создаётся при старте приложения и передаётся в компоненты явно (без package-level globals).
+type Breakers struct {
+	Minio    *gobreaker.CircuitBreaker
+	RabbitMQ *gobreaker.CircuitBreaker
+	Postgres *gobreaker.CircuitBreaker
+}
+
+// NewBreakers инициализирует breaker'ы для MinIO, RabbitMQ и PostgreSQL.
+func NewBreakers() *Breakers {
+	return &Breakers{
+		Minio:    NewBreaker("minio"),
+		RabbitMQ: NewBreaker("rabbitmq"),
+		Postgres: NewBreaker("postgres"),
+	}
+}
 
 // NewBreaker создаёт circuit breaker с разумными defaults для внешних зависимостей.
 func NewBreaker(name string) *gobreaker.CircuitBreaker {
