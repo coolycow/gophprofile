@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "gophprofile.fullname" . }}-worker-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gophprofile.labels" . | nindent 4 }}
+data:
+  MAX_FILE_SIZE: {{ .Values.config.maxFileSize | quote }}
+  MINIO_ENDPOINT: {{ .Values.config.minioEndpoint | quote }}
+  MINIO_BUCKET_NAME: {{ .Values.config.minioBucketName | quote }}
+  MINIO_USE_SSL: {{ .Values.config.minioUseSSL | quote }}
+  RABBITMQ_HOST: {{ .Values.config.rabbitmqHost | quote }}
+  RABBITMQ_PORT: {{ .Values.config.rabbitmqPort | quote }}
+  RABBITMQ_USER: {{ .Values.config.rabbitmqUser | quote }}
+  RABBITMQ_VHOST: {{ .Values.config.rabbitmqVHost | quote }}
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  LOG_FORMAT: {{ .Values.config.logFormat | quote }}
+  RUN_MIGRATIONS: {{ .Values.config.runMigrations | quote }}
+  OTEL_ENABLED: {{ .Values.config.otelEnabled | quote }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.config.otelExporterEndpoint | quote }}
+  OTEL_SERVICE_NAME: {{ .Values.config.otelServiceNameWorker | quote }}
+  METRICS_ADDR: {{ .Values.config.metricsAddr | quote }}

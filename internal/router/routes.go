@@ -2,6 +2,7 @@ package router
 
 import (
 	"net"
+	"os"
 	"strings"
 
 	"github.com/coolycow/gophprofile/internal/config"
@@ -9,9 +10,14 @@ import (
 	"github.com/coolycow/gophprofile/internal/middleware"
 	"github.com/coolycow/gophprofile/internal/observer/audit"
 	"github.com/coolycow/gophprofile/internal/repository"
+	"github.com/coolycow/gophprofile/internal/resilience"
 	"github.com/coolycow/gophprofile/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/minio/minio-go/v7"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
+
+	_ "github.com/coolycow/gophprofile/docs/swagger"
 )
 
 // parseTrustedSubnet парсит строку CIDR в структуру net.IPNet
@@ -34,14 +40,19 @@ func setupRoutes(
 	minioClient *minio.Client,
 	avatarJobs service.AvatarJobPublisher,
 	rabbitMQConn service.RabbitMQHealthConn,
+	breakers *resilience.Breakers,
 ) {
 	// Инициализация сервисов
-	avatarService := service.NewAvatarService(cfg, repo, minioClient, avatarJobs)
-	healthService := service.NewHealthService(repo, cfg, minioClient, rabbitMQConn)
+	avatarService := service.NewAvatarService(cfg, repo, minioClient, avatarJobs, breakers.Minio)
+	healthService := service.NewHealthService(repo, cfg, minioClient, rabbitMQConn, breakers.Minio)
 	userService := service.NewUserService(cfg, repo)
 
-	// Проверка работоспособности сервиса (не требует идентификации пользователя)
+	// Probes для Kubernetes и обратная совместимость
+	r.GET("/health/live", handler.LiveHealthHandler())
+	r.GET("/health/ready", handler.ReadyHealthHandler(healthService))
 	r.GET("/health", handler.HealthHandler(healthService))
+
+	setupSwagger(r)
 
 	// Группа маршрутов для API
 	api := r.Group("/api/v1")
@@ -64,4 +75,11 @@ func setupRoutes(
 	protected.POST("/avatars", handler.PostAvatarHandler(avatarService, auditNotifier))
 	protected.DELETE("/avatars/:avatar_id", handler.DeleteAvatarByIDHandler(avatarService))
 	protected.DELETE("/users/:user_id/avatar", handler.DeleteAvatarByUserIDHandler(avatarService))
+}
+
+func setupSwagger(r *gin.Engine) {
+	if gin.Mode() == gin.ReleaseMode && !strings.EqualFold(strings.TrimSpace(os.Getenv("SWAGGER_ENABLED")), "true") {
+		return
+	}
+	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 }

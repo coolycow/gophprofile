@@ -1,0 +1,157 @@
+nameOverride: ""
+fullnameOverride: ""
+
+global:
+  namespace: gophprofile
+
+imagePullSecrets: []
+
+server:
+  replicaCount: 3
+  image:
+    repository: gophprofile/server
+    tag: latest
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      memory: 128Mi
+      cpu: 100m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+  service:
+    port: 8080
+    metricsPort: 9090
+
+worker:
+  replicaCount: 2
+  image:
+    repository: gophprofile/worker
+    tag: latest
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      memory: 128Mi
+      cpu: 100m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+  service:
+    metricsPort: 9090
+
+client:
+  replicaCount: 1
+  image:
+    repository: gophprofile/client
+    tag: latest
+    pullPolicy: IfNotPresent
+  maxBodySize: 10m
+  resources:
+    requests:
+      memory: 64Mi
+      cpu: 50m
+    limits:
+      memory: 128Mi
+      cpu: 200m
+  service:
+    port: 8000
+
+ingress:
+  enabled: true
+  className: nginx
+  host: gophprofile.local
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+
+config:
+  host: "0.0.0.0"
+  port: "8080"
+  maxFileSize: "1024000"
+  minioEndpoint: "minio.database.svc.cluster.local:9000"
+  minioBucketName: gophprofile
+  minioUseSSL: "false"
+  rabbitmqHost: "rabbitmq.database.svc.cluster.local"
+  rabbitmqPort: "5672"
+  rabbitmqUser: gophprofile
+  rabbitmqVHost: "/"
+  rateLimitEnabled: "true"
+  rateLimitRPS: "30"
+  rateLimitBurst: "60"
+  logLevel: info
+  logFormat: json
+  runMigrations: "false"
+  otelEnabled: "false"
+  otelExporterEndpoint: "jaeger.monitoring.svc.cluster.local:4317"
+  otelServiceNameServer: gophprofile-server
+  otelServiceNameWorker: gophprofile-worker
+  metricsAddr: ":9090"
+  auditFile: /tmp/audit.json
+  swaggerEnabled: "false"
+
+secrets:
+  # Задайте при установке (--set / -f); required в шаблоне secret.yaml не даст установить без значений
+  secretKey: ""
+  databaseDSN: ""
+  minioAccessKey: ""
+  minioSecretKey: ""
+  rabbitmqPassword: ""
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+serviceAccount:
+  create: true
+  name: gophprofile
+
+rbac:
+  create: true
+
+hpa:
+  server:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilization: 70
+    targetMemoryUtilization: 80
+  worker:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilization: 70
+    targetMemoryUtilization: 80
+
+monitoring:
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    labels:
+      release: kube-prometheus
+
+networkPolicy:
+  enabled: true
+  ingressNamespace: ingress-nginx
+  databaseNamespace: database
+  allowDNS: true
+
+migration:
+  enabled: true
+
+probes:
+  liveness:
+    initialDelaySeconds: 30
+    periodSeconds: 10
+  readiness:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+  startup:
+    enabled: true
+    failureThreshold: 30
+    periodSeconds: 5

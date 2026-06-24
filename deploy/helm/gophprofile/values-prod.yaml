@@ -1,0 +1,49 @@
+server:
+  replicaCount: 3
+  image:
+    repository: registry.example.com/gophprofile/server
+    tag: "1.0.0"
+    pullPolicy: Always
+
+worker:
+  replicaCount: 2
+  image:
+    repository: registry.example.com/gophprofile/worker
+    tag: "1.0.0"
+    pullPolicy: Always
+
+client:
+  image:
+    repository: registry.example.com/gophprofile/client
+    tag: "1.0.0"
+    pullPolicy: Always
+
+ingress:
+  host: avatars.example.com
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  tls:
+    enabled: true
+    secretName: gophprofile-tls
+
+config:
+  otelEnabled: "true"
+  logFormat: json
+  swaggerEnabled: "false"
+
+secrets:
+  # Задайте через --set-file или external-secrets в production
+  secretKey: ""
+  databaseDSN: ""
+  minioAccessKey: ""
+  minioSecretKey: ""
+  rabbitmqPassword: ""
+
+hpa:
+  server:
+    minReplicas: 2
+    maxReplicas: 10
+  worker:
+    minReplicas: 2
+    maxReplicas: 10

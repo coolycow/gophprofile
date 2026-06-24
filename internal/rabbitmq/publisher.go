@@ -7,8 +7,10 @@ import (
 	"sync"
 
 	"github.com/coolycow/gophprofile/internal/observability"
+	"github.com/coolycow/gophprofile/internal/resilience"
 	"github.com/google/uuid"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"github.com/sony/gobreaker"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -16,13 +18,15 @@ import (
 
 // AvatarJobPublisher отправляет задания в exchange avatars.exchange (topic).
 type AvatarJobPublisher struct {
-	mu sync.Mutex
-	ch *amqp.Channel
+	mu      sync.Mutex
+	ch      *amqp.Channel
+	breaker *gobreaker.CircuitBreaker
 }
 
 // NewAvatarJobPublisher инициализирует Publisher для работы с аватарками.
-func NewAvatarJobPublisher(ch *amqp.Channel) *AvatarJobPublisher {
-	return &AvatarJobPublisher{ch: ch}
+// breaker передаётся снаружи; nil — publish без circuit breaker.
+func NewAvatarJobPublisher(ch *amqp.Channel, breaker *gobreaker.CircuitBreaker) *AvatarJobPublisher {
+	return &AvatarJobPublisher{ch: ch, breaker: breaker}
 }
 
 // publishJob публикует задание в exchange с routing key и уникальным MessageId.
@@ -66,18 +70,20 @@ func (p *AvatarJobPublisher) publishJob(ctx context.Context, msg AvatarJobMessag
 	// Публикуем задание в exchange с routing key и уникальным MessageId.
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	err = p.ch.PublishWithContext(ctx, ExchangeAvatars, rk, false, false, amqp.Publishing{
-		ContentType:  "application/json",
-		DeliveryMode: amqp.Persistent,
-		MessageId:    uuid.NewString(),
-		Headers:      headers,
-		Body:         body,
+	return resilience.ExecuteVoid(p.breaker, func() error {
+		err = p.ch.PublishWithContext(ctx, ExchangeAvatars, rk, false, false, amqp.Publishing{
+			ContentType:  "application/json",
+			DeliveryMode: amqp.Persistent,
+			MessageId:    uuid.NewString(),
+			Headers:      headers,
+			Body:         body,
+		})
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+		return err
 	})
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-	}
-	return err
 }
 
 // PublishAvatarProcessingJob ставит задание на обработку изображения.

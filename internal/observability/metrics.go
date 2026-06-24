@@ -100,7 +100,8 @@ var (
 )
 
 // StartMetricsServer запускает отдельный HTTP-сервер с эндпоинтом /metrics.
-func StartMetricsServer(ctx context.Context, addr string) (*http.Server, error) {
+// register позволяет добавить дополнительные маршруты (например /health/* у worker).
+func StartMetricsServer(ctx context.Context, addr string, register func(mux *http.ServeMux)) (*http.Server, error) {
 	addr = trimMetricsAddr(addr)
 	if addr == "" {
 		return nil, nil
@@ -108,6 +109,9 @@ func StartMetricsServer(ctx context.Context, addr string) (*http.Server, error) 
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.HandlerFor(registry, promhttp.HandlerOpts{}))
+	if register != nil {
+		register(mux)
+	}
 
 	srv := &http.Server{
 		Addr:              addr,

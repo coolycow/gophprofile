@@ -9,6 +9,7 @@ import (
 	"github.com/coolycow/gophprofile/internal/middleware"
 	"github.com/coolycow/gophprofile/internal/observer/audit"
 	"github.com/coolycow/gophprofile/internal/repository"
+	"github.com/coolycow/gophprofile/internal/resilience"
 	"github.com/coolycow/gophprofile/internal/service"
 	"github.com/gin-gonic/contrib/gzip"
 	"github.com/gin-gonic/gin"
@@ -42,6 +43,7 @@ func NewRouter(
 	minioClient *minio.Client,
 	avatarJobs service.AvatarJobPublisher,
 	rabbitMQConn service.RabbitMQHealthConn,
+	breakers *resilience.Breakers,
 ) *gin.Engine {
 	setGinModeFromEnvOrConfig(cfg)
 
@@ -58,7 +60,7 @@ func NewRouter(
 	router.Use(middleware.ErrorHandler())
 	router.Use(middleware.RequestGzip())
 
-	setupRoutes(router, cfg, repo, auditNotifier, minioClient, avatarJobs, rabbitMQConn)
+	setupRoutes(router, cfg, repo, auditNotifier, minioClient, avatarJobs, rabbitMQConn, breakers)
 
 	return router
 }

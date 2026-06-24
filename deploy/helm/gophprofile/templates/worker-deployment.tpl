@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "gophprofile.fullname" . }}-worker
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gophprofile.worker.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.worker.replicaCount }}
+  selector:
+    matchLabels:
+      app: gophprofile-worker
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: gophprofile-worker
+        {{- include "gophprofile.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "gophprofile.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        fsGroup: {{ .Values.securityContext.fsGroup }}
+      terminationGracePeriodSeconds: 330
+      containers:
+        - name: worker
+          image: "{{ .Values.worker.image.repository }}:{{ .Values.worker.image.tag }}"
+          imagePullPolicy: {{ .Values.worker.image.pullPolicy }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.worker.service.metricsPort }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "gophprofile.fullname" . }}-worker-config
+            - secretRef:
+                name: {{ include "gophprofile.fullname" . }}-secrets
+          env:
+            - name: MIGRATIONS_PATH
+              value: /usr/local/share/gophprofile/migrations
+          securityContext:
+            {{- include "gophprofile.securityContext" . | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          livenessProbe:
+            # /health/ready проверкает регистрацию consumer'а, а не только HTTP /metrics
+            httpGet:
+              path: /health/ready
+              port: metrics
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: tmp
+          emptyDir: {}

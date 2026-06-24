@@ -87,7 +87,7 @@ func (s *avatarService) resolveThumbnailKey(ctx context.Context, a *model.Avatar
 		}
 	}
 	candidate := s.thumbnailObjectKeyGuess(a, side)
-	_, err := statObject(ctx, s.minioClient, s.cfg.MinioBucketName, candidate)
+	_, err := statObject(ctx, s.minioClient, s.minioBreaker, s.cfg.MinioBucketName, candidate)
 	if err == nil {
 		return candidate, nil
 	}

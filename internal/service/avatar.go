@@ -20,6 +20,7 @@ import (
 	"github.com/coolycow/gophprofile/internal/observability"
 	"github.com/coolycow/gophprofile/internal/repository"
 	"github.com/minio/minio-go/v7"
+	"github.com/sony/gobreaker"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 )
@@ -55,15 +56,17 @@ type avatarService struct {
 	cfg          *config.ConfigServer
 	minioClient  *minio.Client
 	jobPublisher AvatarJobPublisher
+	minioBreaker *gobreaker.CircuitBreaker
 }
 
 // NewAvatarService инициализация сервиса. jobPublisher может быть nil — тогда задания в очередь не отправляются.
-func NewAvatarService(cfg *config.ConfigServer, repo repository.GophProfileRepository, minioClient *minio.Client, jobPublisher AvatarJobPublisher) AvatarService {
+func NewAvatarService(cfg *config.ConfigServer, repo repository.GophProfileRepository, minioClient *minio.Client, jobPublisher AvatarJobPublisher, minioBreaker *gobreaker.CircuitBreaker) AvatarService {
 	return &avatarService{
 		repo:         repo,
 		cfg:          cfg,
 		minioClient:  minioClient,
 		jobPublisher: jobPublisher,
+		minioBreaker: minioBreaker,
 	}
 }
 
